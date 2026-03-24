@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+*.db
+.garminconnect/
+venv/
+.venv/
+.git/
+.ruff_cache/
+.mypy_cache/
+tests/
+*.md

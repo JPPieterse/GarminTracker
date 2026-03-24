@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garmin Health Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1117;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        h1 { color: #fff; margin-bottom: 8px; font-size: 1.5rem; }
+        .subtitle { color: #888; margin-bottom: 24px; font-size: 0.9rem; }
+
+        /* Cards */
+        .card {
+            background: #1a1d27;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border: 1px solid #2a2d37;
+        }
+        .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: #fff; }
+
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            background: #1a1d27;
+            border-radius: 10px;
+            padding: 14px 18px;
+            border: 1px solid #2a2d37;
+            flex: 1;
+            min-width: 120px;
+        }
+        .stat-label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
+        .stat-value { font-size: 1.3rem; font-weight: 600; color: #4fc3f7; margin-top: 4px; }
+
+        /* Ask section */
+        .ask-form { display: flex; gap: 8px; }
+        .ask-input {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #2a2d37;
+            background: #0f1117;
+            color: #e0e0e0;
+            font-size: 0.95rem;
+        }
+        .ask-input:focus { outline: none; border-color: #4fc3f7; }
+        .ask-input::placeholder { color: #555; }
+        button {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            background: #4fc3f7;
+            color: #0f1117;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        button:hover { background: #81d4fa; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #2a2d37; color: #e0e0e0; }
+        .btn-secondary:hover { background: #3a3d47; }
+
+        /* Answer */
+        .answer {
+            margin-top: 16px;
+            padding: 16px;
+            background: #0f1117;
+            border-radius: 8px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            display: none;
+        }
+
+        /* Charts */
+        .chart-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+        .chart-tab {
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid #2a2d37;
+            background: transparent;
+            color: #888;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .chart-tab.active { background: #4fc3f7; color: #0f1117; border-color: #4fc3f7; }
+        .chart-container { position: relative; height: 250px; }
+
+        /* Sync */
+        .sync-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .sync-row select {
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #2a2d37;
+            background: #0f1117;
+            color: #e0e0e0;
+        }
+        .sync-status { margin-top: 10px; font-size: 0.85rem; color: #888; }
+
+        /* Suggested questions */
+        .suggestions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+        .suggestion {
+            padding: 6px 12px;
+            border-radius: 16px;
+            border: 1px solid #2a2d37;
+            background: transparent;
+            color: #888;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .suggestion:hover { border-color: #4fc3f7; color: #4fc3f7; }
+
+        .loading { color: #4fc3f7; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Garmin Health Tracker</h1>
+        <p class="subtitle">
+            {% if max_date %}
+                Data from {{ min_date }} to {{ max_date }}
+            {% else %}
+                No data synced yet - sync your Garmin data below
+            {% endif %}
+        </p>
+
+        <!-- Stats -->
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-item"><div class="stat-label">Days Synced</div><div class="stat-value" id="statDays">-</div></div>
+            <div class="stat-item"><div class="stat-label">Activities</div><div class="stat-value" id="statActivities">-</div></div>
+            <div class="stat-item"><div class="stat-label">Date Range</div><div class="stat-value" id="statRange" style="font-size:0.85rem">-</div></div>
+        </div>
+
+        <!-- Ask -->
+        <div class="card">
+            <h2>Ask About Your Health Data</h2>
+            <div class="ask-form">
+                <input type="text" class="ask-input" id="questionInput"
+                    placeholder="e.g. How has my sleep quality changed this month?" />
+                <button onclick="askQuestion()" id="askBtn">Ask</button>
+            </div>
+            <div class="suggestions">
+                <button class="suggestion" onclick="fillQuestion('How is my fitness trending this week?')">Fitness trend</button>
+                <button class="suggestion" onclick="fillQuestion('Am I getting enough deep sleep?')">Sleep quality</button>
+                <button class="suggestion" onclick="fillQuestion('What are my most active days?')">Active days</button>
+                <button class="suggestion" onclick="fillQuestion('How does my heart rate correlate with my exercise?')">HR &amp; exercise</button>
+                <button class="suggestion" onclick="fillQuestion('Give me a weekly health summary')">Weekly summary</button>
+            </div>
+            <div class="answer" id="answerBox"></div>
+        </div>
+
+        <!-- Charts -->
+        <div class="card">
+            <h2>Trends</h2>
+            <div class="chart-tabs" id="chartTabs">
+                <button class="chart-tab active" data-metric="steps">Steps</button>
+                <button class="chart-tab" data-metric="calories">Calories</button>
+                <button class="chart-tab" data-metric="resting_hr">Resting HR</button>
+                <button class="chart-tab" data-metric="sleep">Sleep (hrs)</button>
+                <button class="chart-tab" data-metric="stress">Stress</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Sync -->
+        <div class="card">
+            <h2>Sync Data</h2>
+            <div class="sync-row">
+                <select id="syncDays">
+                    <option value="1">Today</option>
+                    <option value="3">Last 3 days</option>
+                    <option value="7" selected>Last 7 days</option>
+                    <option value="14">Last 14 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                </select>
+                <button onclick="syncData()" id="syncBtn" class="btn-secondary">Sync from Garmin</button>
+            </div>
+            <div class="sync-status" id="syncStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+
+        // Load stats on page load
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('statDays').textContent = data.total_days || 0;
+                document.getElementById('statActivities').textContent = data.total_activities || 0;
+                if (data.date_range.min) {
+                    document.getElementById('statRange').textContent =
+                        data.date_range.min + ' → ' + data.date_range.max;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // Ask question
+        async function askQuestion() {
+            const q = document.getElementById('questionInput').value.trim();
+            if (!q) return;
+            const btn = document.getElementById('askBtn');
+            const box = document.getElementById('answerBox');
+            btn.disabled = true;
+            btn.textContent = 'Thinking...';
+            box.style.display = 'block';
+            box.textContent = 'Analyzing your health data...';
+            box.className = 'answer loading';
+            try {
+                const res = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ question: q, days: 30 }),
+                });
+                const data = await res.json();
+                box.textContent = data.answer || data.error || 'No response';
+                box.className = 'answer';
+            } catch (e) {
+                box.textContent = 'Error: ' + e.message;
+                box.className = 'answer';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Ask';
+        }
+
+        function fillQuestion(q) {
+            document.getElementById('questionInput').value = q;
+            askQuestion();
+        }
+
+        // Enter key submits
+        document.getElementById('questionInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') askQuestion();
+        });
+
+        // Chart
+        async function loadChart(metric) {
+            try {
+                const res = await fetch(`/api/chart/${metric}?days=30`);
+                const data = await res.json();
+                const labels = data.data.map(d => d.date);
+                const values = data.data.map(d => d.value);
+
+                if (chart) chart.destroy();
+                chart = new Chart(document.getElementById('trendChart'), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: metric.replace('_', ' '),
+                            data: values,
+                            borderColor: '#4fc3f7',
+                            backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 3,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#555', maxTicksLimit: 10 }, grid: { color: '#1a1d27' } },
+                            y: { ticks: { color: '#555' }, grid: { color: '#1a1d27' } },
+                        },
+                    },
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        // Chart tab switching
+        document.getElementById('chartTabs').addEventListener('click', (e) => {
+            if (!e.target.dataset.metric) return;
+            document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+            e.target.classList.add('active');
+            loadChart(e.target.dataset.metric);
+        });
+
+        // Sync
+        async function syncData() {
+            const btn = document.getElementById('syncBtn');
+            const status = document.getElementById('syncStatus');
+            const days = document.getElementById('syncDays').value;
+            btn.disabled = true;
+            btn.textContent = 'Syncing...';
+            status.textContent = `Syncing last ${days} day(s)... This may take a moment.`;
+            try {
+                const res = await fetch('/api/sync', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ days: parseInt(days) }),
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    status.textContent = `Synced ${data.results.length} day(s) successfully.`;
+                    loadStats();
+                    loadChart('steps');
+                } else {
+                    status.textContent = 'Error: ' + (data.message || 'Unknown error');
+                }
+            } catch (e) {
+                status.textContent = 'Error: ' + e.message;
+            }
+            btn.disabled = false;
+            btn.textContent = 'Sync from Garmin';
+        }
+
+        // Init
+        loadStats();
+        loadChart('steps');
+    </script>
+</body>
+</html>
