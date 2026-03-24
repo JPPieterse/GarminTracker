@@ -5,10 +5,8 @@ __pycache__/
 .garminconnect/
 venv/
 .venv/
-*.egg-info/
-dist/
-build/
+.git/
 .ruff_cache/
 .mypy_cache/
-.pytest_cache/
-data/
+tests/
+*.md

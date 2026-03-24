@@ -14,7 +14,7 @@ from datetime import date
 
 import anthropic
 
-import database as db
+from . import database as db
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,8 @@ CREATE TABLE daily_stats (
                                     --   totalSteps, totalDistanceMeters, totalKilocalories,
                                     --   activeKilocalories, activeSeconds, sedentarySeconds,
                                     --   floorsAscended, averageStressLevel, maxStressLevel,
-                                    --   stepsGoal, moderateIntensityMinutes, vigorousIntensityMinutes,
+                                    --   stepsGoal, moderateIntensityMinutes,
+                                    --   vigorousIntensityMinutes,
                                     --   bodyBatteryHighestValue, bodyBatteryLowestValue,
                                     --   averageSpO2, lowestSpO2
 );
@@ -119,7 +120,7 @@ def _run_query(sql: str) -> tuple[list[dict], list[str]]:
     try:
         cursor = conn.execute(sql)
         columns = [desc[0] for desc in cursor.description] if cursor.description else []
-        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        rows = [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
         return rows, columns
     finally:
         conn.close()
@@ -236,7 +237,7 @@ def analyze(question: str, days: int = 30) -> str:
             ],
         )
         return summary_response.content[0].text
-    except Exception as e:
+    except Exception:
         logger.exception("Summary generation failed")
         # At least return the raw results
         return f"**Query:** {explanation}\n\n{results_text}"
@@ -255,7 +256,9 @@ def _fallback_analyze(client: anthropic.Anthropic, question: str, days: int) -> 
         messages=[
             {
                 "role": "user",
-                "content": f"Here is my recent health data:\n\n{data_summary}\n\nMy question: {question}",
+                "content": (
+                    f"Here is my recent health data:\n\n{data_summary}\n\nMy question: {question}"
+                ),
             }
         ],
     )

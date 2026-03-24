@@ -3,10 +3,10 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "garmin.db"
+DB_PATH = Path(__file__).resolve().parent.parent / "garmin.db"
 
 
 def get_connection():
@@ -186,7 +186,8 @@ def get_data_summary(days: int = 30) -> str:
             lines.append(
                 f"{row['date']}: steps={d.get('totalSteps', 'N/A')}, "
                 f"calories={d.get('totalKilocalories', 'N/A')}, "
-                f"active_min={d.get('activeSeconds', 0) // 60 if d.get('activeSeconds') else 'N/A'}, "
+                f"active_min="
+                f"{d.get('activeSeconds', 0) // 60 if d.get('activeSeconds') else 'N/A'}, "
                 f"stress={d.get('averageStressLevel', 'N/A')}"
             )
 
@@ -197,7 +198,8 @@ def get_data_summary(days: int = 30) -> str:
             dist = f"{row['distance_meters'] / 1000:.1f}km" if row["distance_meters"] else ""
             lines.append(
                 f"{row['date']}: {row['activity_type']} - {row['name']} "
-                f"({dur}, {dist}, cal={row['calories']}, avgHR={row['avg_hr']}, maxHR={row['max_hr']})"
+                f"({dur}, {dist}, cal={row['calories']}, "
+                f"avgHR={row['avg_hr']}, maxHR={row['max_hr']})"
             )
 
     if sleep_rows:
@@ -263,4 +265,6 @@ def get_chart_data(metric: str, days: int = 30) -> list[dict]:
         else:
             return []
 
-    return [{"date": r["date"], "value": r["value"]} for r in reversed(rows) if r["value"] is not None]
+    return [
+        {"date": r["date"], "value": r["value"]} for r in reversed(rows) if r["value"] is not None
+    ]

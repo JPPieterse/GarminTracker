@@ -1,7 +1,7 @@
 """Garmin Health Tracker - Web Application."""
 
 import logging
-from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -9,29 +9,34 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-import database as db
-import garmin_sync as sync
-import llm_analyzer as llm
+from . import database as db
+from . import garmin_sync as sync
+from . import llm_analyzer as llm
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 db.init_db()
 
 app = FastAPI(title="Garmin Health Tracker")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     min_date, max_date = db.get_date_range()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "min_date": min_date,
-        "max_date": max_date,
-    })
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "min_date": min_date,
+            "max_date": max_date,
+        },
+    )
 
 
 @app.post("/api/sync")
@@ -82,4 +87,5 @@ async def api_stats():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run("garmin_tracker.app:app", host="0.0.0.0", port=8000, reload=True)

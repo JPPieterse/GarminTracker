@@ -3,11 +3,12 @@
 import logging
 import os
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
+from pathlib import Path
 
 from garminconnect import Garmin
 
-import database as db
+from . import database as db
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def get_client() -> Garmin:
         password = os.environ.get("GARMIN_PASSWORD")
         if not email or not password:
             raise ValueError("GARMIN_EMAIL and GARMIN_PASSWORD must be set")
-        token_dir = os.path.join(os.path.dirname(__file__), ".garminconnect")
+        token_dir = str(Path(__file__).resolve().parent.parent / ".garminconnect")
         _client = Garmin(email, password)
         try:
             _client.login(token_dir)
@@ -52,7 +53,7 @@ def sync_date(dt: date) -> dict:
     # Activities
     try:
         activities = client.get_activities_by_date(date_str, date_str)
-        for act in (activities or []):
+        for act in activities or []:
             db.save_activity(act)
         synced["activities"] = len(activities or [])
     except Exception as e:
