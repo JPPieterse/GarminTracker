@@ -1,14 +1,43 @@
+# Python
 __pycache__/
 *.pyc
-.env
-*.db
-.garminconnect/
-venv/
-.venv/
+*.pyo
 *.egg-info/
 dist/
 build/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+venv/
+.venv/
+
+# Node
+node_modules/
+.next/
+.expo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# Database
+*.db
+pgdata/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Garmin
+.garminconnect/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Data
 data/
