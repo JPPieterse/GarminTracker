@@ -45,7 +45,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         event = stripe_lib.Webhook.construct_event(
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
-    except (ValueError, stripe_lib.error.SignatureVerificationError) as exc:
+    except (ValueError, stripe_lib.SignatureVerificationError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     await billing.handle_webhook_event(db, event)

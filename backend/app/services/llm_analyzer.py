@@ -69,7 +69,16 @@ def _extract_sql(raw: str) -> str:
 def _validate_sql(sql: str) -> str:
     """Basic safety checks on generated SQL."""
     upper = sql.upper()
-    forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT"]
+    forbidden = [
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+        "GRANT", "REVOKE", "COPY", "EXECUTE", "PERFORM", "CALL",
+    ]
+    # Block dangerous PostgreSQL functions
+    dangerous_funcs = ["pg_read_file", "pg_write_file", "pg_ls_dir", "lo_import", "lo_export"]
+    lower_sql = sql.lower()
+    for func in dangerous_funcs:
+        if func in lower_sql:
+            raise ValueError(f"Forbidden SQL function: {func}")
     for kw in forbidden:
         if re.search(rf"\b{kw}\b", upper):
             raise ValueError(f"Forbidden SQL keyword: {kw}")
@@ -166,7 +175,7 @@ async def get_available_models() -> list[dict[str, str]]:
     """List available LLM models."""
     models: list[dict[str, str]] = []
     if settings.ANTHROPIC_API_KEY:
-        models.append({"id": "claude-sonnet-4-20250514", "name": "Claude 3.5 Sonnet", "provider": "anthropic"})
+        models.append({"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "provider": "anthropic"})
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags", timeout=5)

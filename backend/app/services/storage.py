@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import boto3
@@ -29,27 +30,37 @@ async def upload_file(
 ) -> str:
     """Upload a file to R2 and return the object key."""
     key = f"{prefix}/{uuid.uuid4()}/{filename}"
-    client = _get_s3_client()
-    client.put_object(
-        Bucket=settings.R2_BUCKET_NAME,
-        Key=key,
-        Body=file_bytes,
-        ContentType=content_type,
-    )
+
+    def _upload():
+        client = _get_s3_client()
+        client.put_object(
+            Bucket=settings.R2_BUCKET_NAME,
+            Key=key,
+            Body=file_bytes,
+            ContentType=content_type,
+        )
+
+    await asyncio.to_thread(_upload)
     return key
 
 
 async def get_download_url(key: str, expires_in: int = 3600) -> str:
     """Generate a presigned download URL."""
-    client = _get_s3_client()
-    return client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.R2_BUCKET_NAME, "Key": key},
-        ExpiresIn=expires_in,
-    )
+    def _presign():
+        client = _get_s3_client()
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.R2_BUCKET_NAME, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
+    return await asyncio.to_thread(_presign)
 
 
 async def delete_file(key: str) -> None:
     """Delete an object from R2."""
-    client = _get_s3_client()
-    client.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
+    def _delete():
+        client = _get_s3_client()
+        client.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
+
+    await asyncio.to_thread(_delete)

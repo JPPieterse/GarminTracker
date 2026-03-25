@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date, datetime, timezone
 
@@ -36,9 +37,12 @@ async def _get_garmin_client(db: AsyncSession, user_id: uuid.UUID) -> Garmin:
     email = decrypt_value(cred.encrypted_email)
     password = decrypt_value(cred.encrypted_password)
 
-    client = Garmin(email, password)
-    client.login()
-    return client
+    def _login():
+        c = Garmin(email, password)
+        c.login()
+        return c
+
+    return await asyncio.to_thread(_login)
 
 
 def _today() -> date:
@@ -64,7 +68,7 @@ async def sync_user_data(
         client = await _get_garmin_client(db, user_id)
 
         # Daily stats
-        stats = client.get_stats(date_str)
+        stats = await asyncio.to_thread(client.get_stats, date_str)
         if stats:
             stmt = (
                 pg_insert(DailyStat)
@@ -78,7 +82,7 @@ async def sync_user_data(
             records += 1
 
         # Activities
-        activities = client.get_activities_by_date(date_str, date_str)
+        activities = await asyncio.to_thread(client.get_activities_by_date, date_str, date_str)
         for act in activities or []:
             act_id = act.get("activityId")
             if act_id:
@@ -100,7 +104,7 @@ async def sync_user_data(
                 records += 1
 
         # Sleep
-        sleep = client.get_sleep_data(date_str)
+        sleep = await asyncio.to_thread(client.get_sleep_data, date_str)
         if sleep:
             stmt = (
                 pg_insert(SleepRecord)
@@ -114,7 +118,7 @@ async def sync_user_data(
             records += 1
 
         # Heart rate
-        hr = client.get_heart_rates(date_str)
+        hr = await asyncio.to_thread(client.get_heart_rates, date_str)
         if hr:
             stmt = (
                 pg_insert(HeartRateRecord)
