@@ -4,7 +4,52 @@
 
 ## Data Sources
 
-ZEV syncs data from Garmin Connect using the garminconnect Python library. Data is stored as JSON blobs per day, allowing access to the full richness of Garmin's metrics.
+ZEV syncs data from Garmin Connect using the garminconnect Python library (133 API methods available). Data is stored as JSON blobs per day, allowing access to the full richness of Garmin's metrics.
+
+## Additional API Endpoints Available (Not Yet Synced)
+
+These methods are available in the garminconnect library and could be added to ZEV's sync:
+
+### Body & Weight
+- `get_body_composition(startdate, enddate)` — weight, BMI, body fat %, muscle mass, bone mass
+- `get_daily_weigh_ins(date)` — individual weigh-in entries
+- `get_weigh_ins(startdate, enddate)` — weight history over a range
+
+### HRV & Readiness
+- `get_hrv_data(date)` — heart rate variability metrics (RMSSD, stress balance)
+- `get_training_readiness(date)` — Garmin's training readiness score
+- `get_morning_training_readiness(date)` — morning-specific readiness check
+- `get_training_status(date)` — Productive/Peaking/Recovery/Unproductive/Detraining/Overreaching
+
+### Performance Metrics
+- `get_max_metrics(date)` — VO2 max and related performance metrics
+- `get_endurance_score(startdate, enddate)` — endurance fitness score
+- `get_hill_score(startdate, enddate)` — hill/climbing fitness
+- `get_race_predictions(startdate, enddate)` — predicted race times (5K, 10K, half, marathon)
+- `get_lactate_threshold()` — lactate threshold heart rate and pace
+- `get_running_tolerance(startdate, enddate)` — running tolerance data
+- `get_fitnessage_data(date)` — calculated fitness age
+
+### Detailed Activity Data
+- `get_activity_details(activity_id)` — full activity with GPS, HR timeline, laps
+- `get_activity_splits(activity_id)` — split/lap data
+- `get_activity_exercise_sets(activity_id)` — strength training set data
+- `get_activity_hr_in_timezones(activity_id)` — time in each HR zone
+- `get_activity_weather(activity_id)` — weather during activity
+
+### Stress & Body Battery
+- `get_all_day_stress(date)` — minute-by-minute stress timeline
+- `get_body_battery(startdate, enddate)` — body battery over a date range
+- `get_body_battery_events(date)` — what caused battery drain/charge events
+
+### Other
+- `get_hydration_data(date)` — water intake tracking
+- `get_respiration_data(date)` — detailed respiration rate
+- `get_spo2_data(date)` — blood oxygen readings
+- `get_floors(date)` — floors climbed detail
+- `get_intensity_minutes_data(date)` — intensity minutes breakdown
+- `get_personal_record()` — user's personal records (fastest 5K, longest run, etc.)
+- `get_goals(status)` — user's configured fitness goals
 
 ## Daily Stats (`get_stats`)
 
