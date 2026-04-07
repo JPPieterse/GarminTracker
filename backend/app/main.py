@@ -52,6 +52,7 @@ def create_app() -> FastAPI:
     from app.api.health import router as health_router
     from app.api.sharing import router as sharing_router
     from app.api.voice import router as voice_router
+    from app.api.workout import router as workout_router
 
     app.include_router(auth_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(billing_router, prefix="/api")
     app.include_router(voice_router, prefix="/api")
     app.include_router(sharing_router, prefix="/api")
+    app.include_router(workout_router, prefix="/api")
 
     @app.get("/api/ping")
     async def ping():
