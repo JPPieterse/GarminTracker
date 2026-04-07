@@ -7,6 +7,7 @@ import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import {
   askQuestion,
   getCoaches,
+  getChatHistory,
   getOnboardingStatus,
   sendOnboardingMessage,
 } from "@/lib/api";
@@ -122,14 +123,42 @@ function CoachChat({
           setLoading(false);
         } else {
           setNeedsOnboarding(false);
-          // Greeting from chosen coach
-          setMessages([
-            {
-              role: "assistant",
-              content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help. 💪`,
-              time: timeNow(),
-            },
-          ]);
+          // Load chat history from database
+          try {
+            const history = await getChatHistory(30);
+            if (history.length > 0) {
+              const restored: ChatMsg[] = history.map((m) => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                time: m.created_at
+                  ? new Date(m.created_at).toLocaleTimeString("en-US", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    })
+                  : "",
+              }));
+              setMessages(restored);
+            } else {
+              // No history — show greeting
+              setMessages([
+                {
+                  role: "assistant",
+                  content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help. 💪`,
+                  time: timeNow(),
+                },
+              ]);
+            }
+          } catch {
+            // Fallback to greeting if history fails
+            setMessages([
+              {
+                role: "assistant",
+                content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help. 💪`,
+                time: timeNow(),
+              },
+            ]);
+          }
         }
       })
       .catch(() => setNeedsOnboarding(false));

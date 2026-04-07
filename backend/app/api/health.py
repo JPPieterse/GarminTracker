@@ -65,6 +65,32 @@ async def sync_data(
     }
 
 
+@router.get("/chat/history")
+async def get_chat_history(
+    limit: int = Query(50),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return recent chat messages for the coach interface."""
+    stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.user_id == user.id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    messages = list(reversed(result.scalars().all()))
+
+    return [
+        {
+            "role": m.role.value.lower(),
+            "content": m.content,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in messages
+    ]
+
+
 @router.post("/ask")
 async def ask_question(
     body: AskRequest,

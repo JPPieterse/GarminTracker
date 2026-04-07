@@ -87,6 +87,14 @@ export function disconnectGarmin(): Promise<void> {
   return fetchApi("/auth/garmin/disconnect", { method: "POST" });
 }
 
+// Chat History
+export function getChatHistory(
+  limit?: number
+): Promise<{ role: string; content: string; created_at: string | null }[]> {
+  const params = limit ? `?limit=${limit}` : "";
+  return fetchApi(`/health/chat/history${params}`);
+}
+
 // Health Profile
 export function getProfile(): Promise<{ context: string }> {
   return fetchApi("/auth/profile");
