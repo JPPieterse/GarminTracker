@@ -284,13 +284,64 @@ async def _route_message(question: str) -> str:
 CHAT_SYSTEM_PROMPT = """You are an AI health and fitness coach on ZEV (Zone Enhanced Vitals).
 You're having a natural conversation with the user about their health, fitness, goals, and wellbeing.
 
-Rules:
+## Program Feature
+
+You can create and update the user's training program. The program appears in their "Program" tab
+where they follow it during workouts, log weights/reps, and track progress.
+
+When the user asks you to create a program, adjust exercises, change the split, swap exercises,
+modify sets/reps, or make any program change, include a [PROGRAM_UPDATE] tag in your response.
+
+Format:
+[PROGRAM_UPDATE]
+```json
+{... complete program JSON ...}
+```
+
+The JSON must follow this structure:
+{
+  "name": "Program Name",
+  "days": [
+    {
+      "id": "unique-day-id",
+      "name": "Day Name",
+      "day_label": "Monday",
+      "exercises": [
+        {
+          "id": "unique-exercise-id",
+          "name": "Exercise Name",
+          "sets": 4,
+          "rep_range": "6-8",
+          "description": "Brief description of the movement.",
+          "muscles_targeted": ["primary muscle", "secondary"],
+          "muscles_warning": "What you should NOT feel",
+          "form_cues": "Key form points",
+          "youtube_search": "exercise name form"
+        }
+      ]
+    }
+  ]
+}
+
+IMPORTANT program rules:
+- When updating, output the COMPLETE program (all days, all exercises) — not just the changed parts
+- Every exercise needs ALL fields filled in
+- Use 4-7 exercises per day
+- If the user just wants one exercise swapped, still output the full program with that change made
+- Include the [PROGRAM_UPDATE] tag so the system can detect and save the update
+- After the JSON block, add a brief conversational summary of what you changed
+
+If the user already has a program and asks about it, reference it naturally. You can see their
+current program in the context below (if one exists).
+
+## General Rules
+
 1. Be conversational, warm, and knowledgeable
 2. Give practical, actionable advice
 3. Reference the user's profile context when relevant
 4. If the user shares body composition data, measurements, or test results, acknowledge them,
    explain what they mean, and relate them to the user's goals
-5. Keep responses concise — 2-5 sentences unless the topic warrants more detail
+5. Keep responses concise — 2-5 sentences unless the topic warrants more detail (program updates can be longer)
 6. If the user asks something that would need their actual tracked data (steps, sleep, HR),
    let them know you can look that up if they ask specifically
 """
@@ -301,6 +352,7 @@ async def _chat_response(
     history: list[dict],
     profile_context: str = "",
     coach_prompt: str = "",
+    program_context: str = "",
 ) -> str:
     """Generate a conversational response (no SQL)."""
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -310,20 +362,123 @@ async def _chat_response(
         system += f"\n\n{coach_prompt}"
     if profile_context:
         system += f"\n{profile_context}"
+    if program_context:
+        system += f"\n{program_context}"
 
     # Inject relevant domain knowledge
     knowledge = get_relevant_knowledge(question)
     if knowledge:
         system += f"\n{knowledge}"
 
+    # Use higher token limit when program updates might be needed
+    needs_program = any(
+        kw in question.lower()
+        for kw in ["program", "exercise", "swap", "change", "replace", "add", "remove",
+                    "workout", "split", "routine", "plan", "build me", "create a", "adjust"]
+    )
+    max_tokens = 4096 if needs_program else 1024
+
     messages = [*history, {"role": "user", "content": question}]
     response = await client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1024,
+        max_tokens=max_tokens,
         system=system,
         messages=messages,
     )
     return response.content[0].text
+
+
+async def _get_program_context(db: AsyncSession, user_id: uuid.UUID) -> str:
+    """Load the user's active workout program as context for the coach."""
+    from app.models.workout import WorkoutProgram
+    import json
+
+    stmt = select(WorkoutProgram).where(
+        WorkoutProgram.user_id == user_id, WorkoutProgram.active.is_(True)
+    )
+    result = await db.execute(stmt)
+    program = result.scalar_one_or_none()
+
+    if not program:
+        return "\n\n## Current Training Program\nNo program created yet. The user can ask you to create one."
+
+    # Summarize program compactly for context
+    days = program.program_data.get("days", [])
+    summary_parts = [f"## Current Training Program: {program.name}"]
+    for day in days:
+        exercises = ", ".join(
+            f"{ex['name']} ({ex['sets']}x{ex['rep_range']})"
+            for ex in day.get("exercises", [])
+        )
+        summary_parts.append(f"- **{day['day_label']} — {day['name']}**: {exercises}")
+
+    return "\n\n" + "\n".join(summary_parts)
+
+
+async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_text: str, coach_id: str) -> str:
+    """Detect [PROGRAM_UPDATE] in the response, extract JSON, save the updated program."""
+    import json
+    from app.models.workout import WorkoutProgram
+
+    if "[PROGRAM_UPDATE]" not in answer_text:
+        return answer_text
+
+    # Extract JSON from the response
+    json_match = re.search(r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*(.*?)\s*```", answer_text, re.DOTALL)
+    if not json_match:
+        # Try without code fences
+        json_match = re.search(r"\[PROGRAM_UPDATE\]\s*(\{.*\})", answer_text, re.DOTALL)
+
+    if not json_match:
+        logger.warning("program_update_tag_found_but_no_json")
+        return answer_text.replace("[PROGRAM_UPDATE]", "").strip()
+
+    try:
+        program_data = json.loads(json_match.group(1))
+        program_name = program_data.pop("name", "Training Program")
+
+        # Deactivate existing programs
+        existing = await db.execute(
+            select(WorkoutProgram).where(
+                WorkoutProgram.user_id == user_id, WorkoutProgram.active.is_(True)
+            )
+        )
+        for prog in existing.scalars():
+            prog.active = False
+
+        # Create new program
+        program = WorkoutProgram(
+            user_id=user_id,
+            coach_id=coach_id or "aria",
+            name=program_name,
+            active=True,
+            program_data=program_data,
+        )
+        db.add(program)
+        await db.flush()
+
+        logger.info("program_updated_from_chat", user_id=str(user_id), program_name=program_name)
+
+    except (json.JSONDecodeError, KeyError) as exc:
+        logger.error("program_update_json_parse_failed", error=str(exc))
+
+    # Clean the response — remove the JSON block, keep the conversational part
+    clean = re.sub(
+        r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*.*?\s*```",
+        "",
+        answer_text,
+        flags=re.DOTALL,
+    ).strip()
+    if not clean:
+        clean = re.sub(r"\[PROGRAM_UPDATE\]\s*\{.*\}", "", answer_text, flags=re.DOTALL).strip()
+
+    # Add a note that the program was updated
+    if clean:
+        clean += "\n\n✅ *Program updated — check your Program tab!*"
+    else:
+        clean = "I've updated your training program! Check your Program tab to see the changes."
+
+    return clean
 
 
 async def ask(
@@ -339,8 +494,9 @@ async def ask(
     history = await _get_recent_history(db, user_id)
     await _save_message(db, user_id, ChatRole.USER, question)
 
-    # Load user profile and coach persona
+    # Load user profile, coach persona, and current program
     profile_context = await _get_user_profile(db, user_id)
+    program_context = await _get_program_context(db, user_id)
     coach = get_coach(coach_id) if coach_id else None
     coach_prompt = coach["system_addendum"] if coach else ""
 
@@ -351,7 +507,11 @@ async def ask(
 
         if route == "CHAT":
             # Pure conversation — no SQL needed
-            answer_text = await _chat_response(question, history, profile_context, coach_prompt)
+            answer_text = await _chat_response(
+                question, history, profile_context, coach_prompt, program_context
+            )
+            # Check if the coach wants to update the program
+            answer_text = await _handle_program_update(db, user_id, answer_text, coach_id or "")
             await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used=model_used)
             return {"answer": answer_text, "results": [], "model": model_used, "count": 0}
 
@@ -396,7 +556,10 @@ async def ask(
     except ValueError as exc:
         # If SQL validation fails, fall back to chat mode
         logger.warning("sql_validation_failed_falling_back_to_chat", error=str(exc))
-        answer_text = await _chat_response(question, history, profile_context, coach_prompt)
+        answer_text = await _chat_response(
+            question, history, profile_context, coach_prompt, program_context
+        )
+        answer_text = await _handle_program_update(db, user_id, answer_text, coach_id or "")
         await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used="claude-sonnet-4-20250514")
         return {"answer": answer_text, "results": [], "model": "claude-sonnet-4-20250514", "count": 0}
 
