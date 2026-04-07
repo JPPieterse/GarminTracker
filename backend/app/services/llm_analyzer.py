@@ -43,6 +43,28 @@ Tables (SQLite with JSON columns):
 - heart_rate_records: id (UUID), user_id (UUID), date (DATE), data (JSON)
   JSON fields in data: restingHeartRate (int), maxHeartRate (int), minHeartRate (int)
 
+- hrv_records: id (UUID), user_id (UUID), date (DATE), data (JSON)
+  JSON fields in data: hrvSummary.lastNightAvg (float), hrvSummary.lastNight5MinHigh (int),
+  hrvSummary.status (str: BALANCED/UNBALANCED/LOW), hrvSummary.baseline.lowUpper (int),
+  hrvSummary.baseline.balancedLow (int), hrvSummary.baseline.balancedUpper (int)
+
+- training_readiness_records: id (UUID), user_id (UUID), date (DATE), data (JSON)
+  JSON fields: data.readiness (training readiness object), data.status (training status object)
+  Readiness fields: score (int 0-100), level (str: PRIME/HIGH/MODERATE/LOW)
+  Status fields: trainingStatus (str: PRODUCTIVE/PEAKING/RECOVERY/UNPRODUCTIVE/DETRAINING/OVERREACHING)
+
+- body_composition_records: id (UUID), user_id (UUID), date (DATE), data (JSON)
+  JSON fields: weight (float, grams), bmi (float), bodyFat (float, percentage),
+  muscleMass (float, grams), boneMass (float, grams), bodyWater (float, percentage)
+
+- stress_detail_records: id (UUID), user_id (UUID), date (DATE), data (JSON)
+  JSON fields: data.stress_timeline (array of stress values throughout day),
+  data.body_battery_events (array of drain/charge events with types and impacts)
+
+- performance_metrics: id (UUID), user_id (UUID), date (DATE), data (JSON)
+  JSON fields: data.max_metrics (VO2 max, training load), data.fitness_age (fitness age data),
+  data.race_predictions (predicted 5K, 10K, half marathon, marathon times)
+
 IMPORTANT — Use SQLite json_extract() syntax:
   json_extract(data, '$.fieldName') to get a value
   CAST(json_extract(data, '$.fieldName') AS REAL) for numeric comparisons/aggregations

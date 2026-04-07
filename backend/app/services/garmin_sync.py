@@ -22,6 +22,13 @@ from app.models.health import (
     SyncLog,
     SyncStatus,
 )
+from app.models.garmin_extended import (
+    BodyCompositionRecord,
+    HrvRecord,
+    PerformanceMetric,
+    StressDetailRecord,
+    TrainingReadinessRecord,
+)
 from app.models.user import GarminCredential
 
 logger = structlog.get_logger()
@@ -110,6 +117,17 @@ async def _upsert_hr(db: AsyncSession, user_id: uuid.UUID, target: date, data: d
         db.add(HeartRateRecord(user_id=user_id, date=target, data=data))
 
 
+async def _upsert_generic(db: AsyncSession, model_class, user_id: uuid.UUID, target: date, data: dict) -> None:
+    """Generic upsert for any model with user_id + date + data columns."""
+    stmt = select(model_class).where(model_class.user_id == user_id, model_class.date == target)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.data = data
+    else:
+        db.add(model_class(user_id=user_id, date=target, data=data))
+
+
 async def sync_user_data(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -151,6 +169,80 @@ async def sync_user_data(
         if hr:
             await _upsert_hr(db, user_id, target, hr)
             records += 1
+
+        # ── Extended metrics (best-effort — don't fail sync if these error) ──
+
+        # HRV
+        try:
+            hrv = await asyncio.to_thread(client.get_hrv_data, date_str)
+            if hrv:
+                await _upsert_generic(db, HrvRecord, user_id, target, hrv)
+                records += 1
+        except Exception as exc:
+            logger.debug("hrv_sync_skipped", error=str(exc))
+
+        # Training readiness + status (combined into one record)
+        try:
+            readiness = await asyncio.to_thread(client.get_training_readiness, date_str)
+            status = await asyncio.to_thread(client.get_training_status, date_str)
+            combined = {}
+            if readiness:
+                combined["readiness"] = readiness
+            if status:
+                combined["status"] = status
+            if combined:
+                await _upsert_generic(db, TrainingReadinessRecord, user_id, target, combined)
+                records += 1
+        except Exception as exc:
+            logger.debug("readiness_sync_skipped", error=str(exc))
+
+        # Body composition
+        try:
+            body = await asyncio.to_thread(client.get_body_composition, date_str)
+            if body:
+                await _upsert_generic(db, BodyCompositionRecord, user_id, target, body)
+                records += 1
+        except Exception as exc:
+            logger.debug("body_comp_sync_skipped", error=str(exc))
+
+        # Stress detail + body battery events
+        try:
+            stress = await asyncio.to_thread(client.get_all_day_stress, date_str)
+            bb_events = await asyncio.to_thread(client.get_body_battery_events, date_str)
+            combined_stress = {}
+            if stress:
+                combined_stress["stress_timeline"] = stress
+            if bb_events:
+                combined_stress["body_battery_events"] = bb_events
+            if combined_stress:
+                await _upsert_generic(db, StressDetailRecord, user_id, target, combined_stress)
+                records += 1
+        except Exception as exc:
+            logger.debug("stress_detail_sync_skipped", error=str(exc))
+
+        # Performance metrics (VO2 max, race predictions, fitness age)
+        try:
+            perf = {}
+            max_metrics = await asyncio.to_thread(client.get_max_metrics, date_str)
+            if max_metrics:
+                perf["max_metrics"] = max_metrics
+            try:
+                fitness_age = await asyncio.to_thread(client.get_fitnessage_data, date_str)
+                if fitness_age:
+                    perf["fitness_age"] = fitness_age
+            except Exception:
+                pass
+            try:
+                race_pred = await asyncio.to_thread(client.get_race_predictions)
+                if race_pred:
+                    perf["race_predictions"] = race_pred
+            except Exception:
+                pass
+            if perf:
+                await _upsert_generic(db, PerformanceMetric, user_id, target, perf)
+                records += 1
+        except Exception as exc:
+            logger.debug("performance_sync_skipped", error=str(exc))
 
         log.status = SyncStatus.SUCCESS
         log.records_synced = records

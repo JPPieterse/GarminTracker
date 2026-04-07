@@ -79,6 +79,7 @@ def create_app() -> FastAPI:
         import app.models.billing  # noqa: F401
         import app.models.sharing  # noqa: F401
         import app.models.workout  # noqa: F401
+        import app.models.garmin_extended  # noqa: F401
 
         if settings.DATABASE_URL.startswith("sqlite"):
             async with engine.begin() as conn:
