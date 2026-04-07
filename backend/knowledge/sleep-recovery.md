@@ -77,32 +77,28 @@ If you notice 3 or more of these signs persisting for more than a week, it is ti
 
 Rest days do not mean you have to be completely sedentary. Active recovery promotes blood flow, reduces stiffness, and supports the recovery process without adding training stress.
 
-**Effective active recovery options:**
+**Effective options:**
 
-- **Walking:** 20-40 minutes at an easy pace. The single best recovery activity -- promotes blood flow, reduces stress, burns some calories, and has zero recovery cost.
-- **Light cycling or swimming:** 20-30 minutes at a conversational pace (heart rate under 120 bpm for most people).
-- **Mobility work:** foam rolling, dynamic stretching, yoga, or dedicated mobility routines. Focus on areas that feel tight or restricted.
-- **Light bodyweight movement:** easy stretching circuits, band pull-aparts, goblet squats with very light weight.
+- **Walking:** 20-40 minutes easy pace. Best recovery tool -- promotes blood flow, zero recovery cost.
+- **Light cycling or swimming:** 20-30 minutes at conversational pace (HR under 120 bpm).
+- **Mobility work:** foam rolling, stretching, yoga. Focus on tight or restricted areas.
+- **Light bodyweight movement:** stretching circuits, band work at very low intensity.
 
-The key word is "light." If your recovery session makes you sore or tired, it was too intense. The goal is movement that feels restorative, not like a workout.
+If your recovery session makes you sore, it was too intense. The goal is restorative, not challenging.
 
 ## Deload Weeks: When and How
 
 A deload week is a planned reduction in training volume or intensity, typically every 4-8 weeks. It allows accumulated fatigue to dissipate so you can come back stronger.
 
-**When to deload:**
+**When:** Every 4-6 weeks for experienced lifters, 6-8 weeks for intermediates, or reactively when you see accumulated fatigue signs. Always after competitions.
 
-- Proactively: every 4-6 weeks for experienced lifters, every 6-8 weeks for intermediates
-- Reactively: when you notice signs of accumulated fatigue -- stalled progress, persistent soreness, declining motivation, poor sleep
-- After a competition or peak performance event
+**How:**
 
-**How to deload:**
+- **Reduce volume:** same weights, cut sets by 40-50%
+- **Reduce intensity:** same sets/reps at 50-60% of normal weight
+- **Reduce both:** best when feeling genuinely beaten up
 
-- **Option 1 -- Reduce volume:** keep the same weights but cut sets by 40-50%. If you normally do 4 sets, do 2.
-- **Option 2 -- Reduce intensity:** keep the same sets and reps but use 50-60% of your normal working weight.
-- **Option 3 -- Reduce both:** lighter weight and fewer sets. Best for those feeling genuinely beaten up.
-
-Maintain your normal training schedule during a deload. Show up to the gym, move through your exercises, but leave feeling fresh rather than fatigued. Deloads are not laziness -- they are when adaptation actually occurs. Many lifters hit personal records in the week or two following a properly timed deload.
+Maintain your normal schedule -- show up but leave feeling fresh. Deloads are when adaptation occurs. Many lifters hit PRs in the week following a proper deload.
 
 ## Napping: Benefits and Timing
 
@@ -129,16 +125,15 @@ Not all sleep tips are equally impactful. Focus on these high-leverage habits:
 
 **The big three (highest impact):**
 
-1. **Consistent sleep and wake times:** go to bed and wake up within a 30-minute window every day, including weekends. This anchors your circadian rhythm more than any other single habit.
-2. **Dark, cool room:** use blackout curtains or a sleep mask. Keep the room at 18-20 degrees Celsius. Your body needs to drop its core temperature to initiate and maintain sleep.
-3. **No screens 30-60 minutes before bed:** blue light suppresses melatonin. If you must use screens, use night mode and keep brightness low. Reading a physical book or listening to a podcast is a better wind-down.
+1. **Consistent sleep/wake times:** within a 30-minute window every day, including weekends. This anchors your circadian rhythm more than anything else.
+2. **Dark, cool room:** blackout curtains or sleep mask, 18-20 degrees Celsius. Your body must drop core temperature to initiate sleep.
+3. **No screens 30-60 minutes before bed:** blue light suppresses melatonin. Use night mode if you must, but a book or podcast is better.
 
 **Also important:**
 
-- **Caffeine cutoff:** no caffeine after 2:00 PM (or at least 8 hours before bed). Caffeine has a half-life of 5-6 hours, meaning half the caffeine from your 3 PM coffee is still active at 9 PM.
-- **Alcohol disrupts sleep architecture:** even moderate drinking reduces REM sleep and increases nighttime awakenings. The sedation from alcohol is not the same as real sleep.
-- **Regular exercise improves sleep quality** -- but avoid intense training within 2-3 hours of bedtime.
-- **Wind-down routine:** 15-30 minutes of the same calming activities each night signals your brain that sleep is coming. This could be stretching, reading, journaling, or breathing exercises.
-- **Limit fluid intake** in the last 1-2 hours before bed to reduce nighttime bathroom trips.
+- **Caffeine cutoff:** none after 2:00 PM. Half the caffeine from a 3 PM coffee is still active at 9 PM.
+- **Alcohol disrupts sleep architecture:** reduces REM and increases awakenings. Sedation is not real sleep.
+- **Exercise improves sleep** -- but avoid intense training within 2-3 hours of bedtime.
+- **Wind-down routine:** 15-30 minutes of consistent calming activities signals your brain that sleep is coming.
 
-If you are doing everything right and still struggling with sleep, consider tracking your sleep with a wearable to identify patterns, and consult a healthcare provider if issues persist beyond 2-3 weeks.
+If you are doing everything right and still struggling, track sleep with a wearable and consult a provider if issues persist beyond 2-3 weeks.
