@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Dumbbell, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, ClipboardList, Dumbbell, Settings, LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/program", label: "Program", icon: ClipboardList },
   { href: "/dashboard/ask", label: "Coach", icon: Dumbbell },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];

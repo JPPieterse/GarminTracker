@@ -105,3 +105,67 @@ export interface ActivitySummary {
   avg_hr: number | null;
   max_hr: number | null;
 }
+
+// ── Workout Program Tracker ─────────────────────────────────────────────
+
+export interface ProgramExercise {
+  id: string;
+  name: string;
+  sets: number;
+  rep_range: string;
+  description: string;
+  muscles_targeted: string[];
+  muscles_warning: string;
+  form_cues: string;
+  youtube_search: string;
+}
+
+export interface ProgramDay {
+  id: string;
+  name: string;
+  day_label: string;
+  exercises: ProgramExercise[];
+}
+
+export interface WorkoutProgram {
+  id: string;
+  name: string;
+  coach_id: string;
+  program_data: { days: ProgramDay[] };
+  created_at?: string;
+}
+
+export interface LoggedSet {
+  exercise_id: string;
+  set_number: number;
+  weight_kg: number;
+  reps: number;
+  logged_at?: string;
+}
+
+export interface WorkoutSessionData {
+  id: string;
+  day_id: string;
+  started_at: string;
+  finished_at: string | null;
+  coach_debrief: string | null;
+  sets: LoggedSet[];
+}
+
+export interface StartWorkoutResponse {
+  session_id: string;
+  day_id: string;
+  last_weights: Record<string, number>;
+}
+
+export interface CompleteWorkoutResponse {
+  status: string;
+  duration_min: number | null;
+  total_sets: number;
+  coach_debrief: string;
+}
+
+export interface ExerciseHistoryEntry {
+  date: string;
+  sets: { set: number; weight_kg: number; reps: number }[];
+}
