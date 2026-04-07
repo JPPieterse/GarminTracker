@@ -60,6 +60,7 @@ async def get_active_program(
             "id": str(program.id),
             "name": program.name,
             "coach_id": program.coach_id,
+            "coach_note": program.coach_note,
             "program_data": program.program_data,
             "created_at": program.created_at.isoformat(),
         }
@@ -79,6 +80,7 @@ async def generate_program(
             "id": str(program.id),
             "name": program.name,
             "coach_id": program.coach_id,
+            "coach_note": program.coach_note,
             "program_data": program.program_data,
         }
     }

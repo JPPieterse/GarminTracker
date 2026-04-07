@@ -301,6 +301,7 @@ Format:
 The JSON must follow this structure:
 {
   "name": "Program Name",
+  "coach_note": "A training note for the user — what to focus on this phase, key priorities, weekly reminders, or motivational context. This appears at the top of their Program page. 2-4 sentences.",
   "days": [
     {
       "id": "unique-day-id",
@@ -324,6 +325,8 @@ The JSON must follow this structure:
 }
 
 IMPORTANT program rules:
+- Always include a "coach_note" — this is your voice at the top of their training page. Use it to set
+  the tone for this training phase, remind them of priorities, or give context for the program design.
 - When updating, output the COMPLETE program (all days, all exercises) — not just the changed parts
 - Every exercise needs ALL fields filled in
 - Use 4-7 exercises per day
@@ -436,6 +439,7 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
     try:
         program_data = json.loads(json_match.group(1))
         program_name = program_data.pop("name", "Training Program")
+        coach_note = program_data.pop("coach_note", "")
 
         # Deactivate existing programs
         existing = await db.execute(
@@ -451,6 +455,7 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
             user_id=user_id,
             coach_id=coach_id or "aria",
             name=program_name,
+            coach_note=coach_note,
             active=True,
             program_data=program_data,
         )

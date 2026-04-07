@@ -20,6 +20,7 @@ class WorkoutProgram(UUIDMixin, TimestampMixin, Base):
     coach_id: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(256), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    coach_note: Mapped[str] = mapped_column(Text, default="")
     program_data: Mapped[dict] = mapped_column(JSON, default=dict)
 
     sessions: Mapped[list[WorkoutSession]] = relationship(

@@ -26,6 +26,7 @@ Based on the user's profile, generate a complete training program as valid JSON.
 The JSON MUST follow this exact structure:
 {{
   "name": "Program Name",
+  "coach_note": "A training note that appears at the top of the user's Program page. Set the tone for this phase — what to focus on, key priorities, motivational context. 2-4 sentences.",
   "days": [
     {{
       "id": "unique-day-id",
@@ -120,6 +121,7 @@ async def generate_program(
 
     program_data = json.loads(raw)
     program_name = program_data.pop("name", "Training Program")
+    coach_note = program_data.pop("coach_note", "")
 
     # Deactivate existing programs
     existing = await db.execute(
@@ -134,6 +136,7 @@ async def generate_program(
         user_id=user_id,
         coach_id=coach_id,
         name=program_name,
+        coach_note=coach_note,
         active=True,
         program_data=program_data,
     )

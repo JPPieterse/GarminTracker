@@ -107,6 +107,20 @@ _MODULE_KEYWORDS: dict[str, list[str]] = {
         "training status", "vo2", "sync", "data", "metrics",
         "wearable", "watch data", "garmin connect",
     ],
+    "recovery-readiness": [
+        "recovery", "readiness", "ready to train", "hrv", "heart rate variability",
+        "body battery", "rested", "fatigued", "fatigue", "overtrained",
+        "overtraining", "should i train", "rest day", "deload",
+        "cnr", "nervous system", "recovered", "push through",
+    ],
+    "general-health-advisory": [
+        "sick", "ill", "illness", "fever", "cold", "flu", "sore throat",
+        "doctor", "gp", "medical", "health", "heart rate high",
+        "spo2", "blood oxygen", "dizzy", "chest pain", "palpitations",
+        "supplement", "vitamin", "creatine", "magnesium", "hydration",
+        "dehydrated", "water intake", "when to see a doctor",
+        "stress score", "high stress",
+    ],
 }
 
 # Cache loaded modules in memory

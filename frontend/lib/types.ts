@@ -131,6 +131,7 @@ export interface WorkoutProgram {
   id: string;
   name: string;
   coach_id: string;
+  coach_note?: string;
   program_data: { days: ProgramDay[] };
   created_at?: string;
 }
