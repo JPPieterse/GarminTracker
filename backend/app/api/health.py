@@ -17,7 +17,7 @@ from app.models.billing import UsageType
 from app.models.chat import ChatMessage
 from app.models.health import Activity, DailyStat, HeartRateRecord, SleepRecord
 from app.models.user import GarminCredential, User, UserProfile
-from app.services import coaches, garmin_sync, llm_analyzer, usage
+from app.services import coaches, garmin_sync, knowledge, llm_analyzer, usage
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -41,6 +41,12 @@ class AskRequest(BaseModel):
 async def list_coaches():
     """Return all available AI coaches."""
     return coaches.get_all_coaches()
+
+
+@router.get("/knowledge/modules")
+async def list_knowledge_modules():
+    """List all knowledge modules and their availability status."""
+    return knowledge.list_available_modules()
 
 
 @router.post("/sync")

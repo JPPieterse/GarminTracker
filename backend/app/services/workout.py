@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.models.user import UserProfile
 from app.models.workout import WorkoutProgram, WorkoutSession, WorkoutSet
 from app.services.coaches import get_coach
+from app.services.knowledge import get_relevant_knowledge
 
 logger = structlog.get_logger()
 
@@ -92,6 +93,14 @@ async def generate_program(
     system = PROGRAM_GENERATION_PROMPT
     if coach.get("system_addendum"):
         system += f"\n\n{coach['system_addendum']}"
+
+    # Inject domain knowledge relevant to program generation
+    knowledge = get_relevant_knowledge(
+        f"workout program {profile_text[:200]}",
+        max_modules=3,
+    )
+    if knowledge:
+        system += f"\n{knowledge}"
 
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     response = await client.messages.create(

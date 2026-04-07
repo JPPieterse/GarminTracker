@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.chat import ChatMessage, ChatRole
 from app.models.user import UserProfile
+from app.services.knowledge import get_relevant_knowledge
 
 logger = structlog.get_logger()
 
@@ -210,6 +211,11 @@ async def _summarize_results(
     if coach_prompt:
         system += f"\n\n{coach_prompt}"
 
+    # Inject relevant domain knowledge for context-aware summaries
+    knowledge = get_relevant_knowledge(question)
+    if knowledge:
+        system += f"\n{knowledge}"
+
     content = f"User's question: {question}\n\nData results:\n{json.dumps(results, indent=2, default=str)}"
     if profile_context:
         content += f"\n{profile_context}"
@@ -304,6 +310,11 @@ async def _chat_response(
         system += f"\n\n{coach_prompt}"
     if profile_context:
         system += f"\n{profile_context}"
+
+    # Inject relevant domain knowledge
+    knowledge = get_relevant_knowledge(question)
+    if knowledge:
+        system += f"\n{knowledge}"
 
     messages = [*history, {"role": "user", "content": question}]
     response = await client.messages.create(
