@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "GarminTracker",
-    "slug": "garmintracker",
-    "scheme": "garmintracker",
+    "name": "ZEV",
+    "slug": "zev",
+    "scheme": "zev",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,13 +12,13 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.garmintracker.app"
+      "bundleIdentifier": "com.zev.app"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0f1117"
       },
-      "package": "com.garmintracker.app"
+      "package": "com.zev.app"
     },
     "plugins": [
       "expo-router",

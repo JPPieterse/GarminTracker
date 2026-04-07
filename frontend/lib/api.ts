@@ -5,10 +5,13 @@ import type {
   AskResponse,
   SyncResult,
   ModelInfo,
+  Coach,
   PatientSummary,
   SubscriptionInfo,
   SharingLink,
   PatientDetail,
+  SleepBreakdown,
+  ActivitySummary,
 } from "./types";
 
 class ApiError extends Error {
@@ -64,39 +67,60 @@ export function getMe(): Promise<User> {
 
 export function getAuthConfig(): Promise<{
   configured: boolean;
-  domain?: string;
-  client_id?: string;
-  audience?: string;
+  provider: string;
 }> {
   return fetchApi("/auth/config");
 }
 
 // Garmin
-export function connectGarmin(): Promise<{ redirect_url: string }> {
-  return fetchApi("/garmin/connect", { method: "POST" });
+export function connectGarmin(
+  email: string,
+  password: string
+): Promise<{ status: string }> {
+  return fetchApi("/auth/garmin/connect", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
 }
 
 export function disconnectGarmin(): Promise<void> {
-  return fetchApi("/garmin/disconnect", { method: "POST" });
+  return fetchApi("/auth/garmin/disconnect", { method: "POST" });
+}
+
+// Health Profile
+export function getProfile(): Promise<{ context: string }> {
+  return fetchApi("/auth/profile");
+}
+
+export function updateProfile(context: string): Promise<{ status: string }> {
+  return fetchApi("/auth/profile", {
+    method: "PUT",
+    body: JSON.stringify({ context }),
+  });
 }
 
 export function syncData(): Promise<SyncResult> {
-  return fetchApi("/garmin/sync", { method: "POST" });
+  return fetchApi("/health/sync", { method: "POST", body: JSON.stringify({}) });
 }
 
 // AI
 export function askQuestion(
   question: string,
-  model?: string
+  model?: string,
+  coach?: string
 ): Promise<AskResponse> {
-  return fetchApi("/ask", {
+  return fetchApi("/health/ask", {
     method: "POST",
-    body: JSON.stringify({ question, model }),
+    body: JSON.stringify({ question, model, coach }),
   });
 }
 
+export function getCoaches(): Promise<Coach[]> {
+  return fetchApi("/health/coaches");
+}
+
 export function getModels(): Promise<ModelInfo[]> {
-  return fetchApi("/models");
+  return fetchApi("/health/models");
 }
 
 // Data
@@ -104,19 +128,47 @@ export function getChart(
   metric: string,
   days?: number
 ): Promise<ChartDataPoint[]> {
-  const params = new URLSearchParams({ metric });
-  if (days) params.set("days", String(days));
-  return fetchApi(`/chart?${params}`);
+  const params = days ? `?days=${days}` : "";
+  return fetchApi(`/health/chart/${metric}${params}`);
 }
 
 export function getStats(): Promise<StatsResponse> {
-  return fetchApi("/stats");
+  return fetchApi("/health/stats");
+}
+
+// Onboarding
+export function getOnboardingStatus(): Promise<{ needs_onboarding: boolean }> {
+  return fetchApi("/health/onboarding/status");
+}
+
+export function sendOnboardingMessage(
+  message: string,
+  history: { role: string; content: string }[]
+): Promise<{
+  reply: string;
+  history: { role: string; content: string }[];
+  complete: boolean;
+}> {
+  return fetchApi("/health/onboarding/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, history }),
+  });
+}
+
+export function getSleepBreakdown(days?: number): Promise<SleepBreakdown[]> {
+  const params = days ? `?days=${days}` : "";
+  return fetchApi(`/health/sleep/breakdown${params}`);
+}
+
+export function getActivities(days?: number): Promise<ActivitySummary[]> {
+  const params = days ? `?days=${days}` : "";
+  return fetchApi(`/health/activities/summary${params}`);
 }
 
 export function exportData(format: string = "json"): Promise<Blob> {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return fetch(`/api/export?format=${format}`, {
+  return fetch(`/api/health/export?format=${format}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   }).then((res) => {
     if (!res.ok) throw new ApiError("Export failed", res.status);
@@ -176,5 +228,5 @@ export function cancelSubscription(): Promise<void> {
 
 // Account
 export function deleteAccount(): Promise<void> {
-  return fetchApi("/account", { method: "DELETE" });
+  return fetchApi("/health/account", { method: "DELETE" });
 }

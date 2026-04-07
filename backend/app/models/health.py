@@ -6,8 +6,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON, BigInteger, Date, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -19,7 +18,7 @@ class DailyStat(UUIDMixin, TimestampMixin, Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
-    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Activity(TimestampMixin, Base):
@@ -29,7 +28,7 @@ class Activity(TimestampMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
     activity_type: Mapped[str] = mapped_column(String(128), default="")
-    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class SleepRecord(UUIDMixin, TimestampMixin, Base):
@@ -38,7 +37,7 @@ class SleepRecord(UUIDMixin, TimestampMixin, Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
-    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class HeartRateRecord(UUIDMixin, TimestampMixin, Base):
@@ -47,7 +46,7 @@ class HeartRateRecord(UUIDMixin, TimestampMixin, Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
-    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class SyncStatus(str, enum.Enum):

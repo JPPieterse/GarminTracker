@@ -1,9 +1,13 @@
-"""LLM-powered analysis of Garmin health data using Claude.
+"""LLM-powered analysis of Garmin health data.
+
+Supports two backends:
+- Ollama (local models, no API key needed)
+- Anthropic API (cloud, requires ANTHROPIC_API_KEY)
 
 Two-step approach:
-1. Claude generates a SQL query from the user's natural language question
+1. LLM generates a SQL query from the user's natural language question
 2. Query runs against the database (read-only)
-3. Claude summarizes the results in plain English with insights
+3. LLM summarizes the results in plain English with insights
 """
 
 import json
@@ -12,11 +16,28 @@ import os
 import sqlite3
 from datetime import date
 
-import anthropic
+import httpx
 
 from . import database as db
 
 logger = logging.getLogger(__name__)
+
+# --- Model Registry ---
+
+MODELS = {
+    # Local models (Ollama)
+    "phi4-mini": {"name": "Phi-4 Mini (3.8B)", "backend": "ollama", "model_id": "phi4-mini", "size": "~2.5 GB"},
+    "qwen2.5-coder:1.5b": {"name": "Qwen 2.5 Coder 1.5B", "backend": "ollama", "model_id": "qwen2.5-coder:1.5b", "size": "~1 GB"},
+    "qwen2.5-coder:7b": {"name": "Qwen 2.5 Coder 7B", "backend": "ollama", "model_id": "qwen2.5-coder:7b", "size": "~4.5 GB"},
+    "gemma2:2b": {"name": "Gemma 2 2B", "backend": "ollama", "model_id": "gemma2:2b", "size": "~1.5 GB"},
+    "llama3.2:3b": {"name": "Llama 3.2 3B", "backend": "ollama", "model_id": "llama3.2:3b", "size": "~2 GB"},
+    # Cloud models (Anthropic)
+    "haiku": {"name": "Claude Haiku 4.5 (API)", "backend": "anthropic", "model_id": "claude-haiku-4-5-20251001", "size": "cloud"},
+    "sonnet": {"name": "Claude Sonnet 4.6 (API)", "backend": "anthropic", "model_id": "claude-sonnet-4-6-20250514", "size": "cloud"},
+}
+
+DEFAULT_MODEL = "phi4-mini"
+OLLAMA_BASE = "http://localhost:11434"
 
 SCHEMA_DESCRIPTION = """
 You have access to a SQLite database with these tables:
@@ -105,6 +126,62 @@ Analyze the results and provide a clear, insightful answer to their question.
 - Note: you are an AI, not a medical professional. Mention this if giving health advice."""
 
 
+# --- Backend Dispatch ---
+
+def _call_llm(system: str, user: str, model_key: str, max_tokens: int = 1024) -> str:
+    """Route LLM call to the appropriate backend."""
+    model_info = MODELS.get(model_key, MODELS[DEFAULT_MODEL])
+
+    if model_info["backend"] == "ollama":
+        return _call_ollama(system, user, model_info["model_id"], max_tokens)
+    else:
+        return _call_anthropic(system, user, model_info["model_id"], max_tokens)
+
+
+def _call_ollama(system: str, user: str, model_id: str, max_tokens: int) -> str:
+    """Call Ollama local API."""
+    try:
+        resp = httpx.post(
+            f"{OLLAMA_BASE}/api/chat",
+            json={
+                "model": model_id,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "stream": False,
+                "options": {"num_predict": max_tokens},
+            },
+            timeout=300.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["message"]["content"].strip()
+    except httpx.ConnectError:
+        raise ConnectionError(
+            "Ollama is not running. Start it with 'ollama serve' or launch the Ollama app."
+        )
+
+
+def _call_anthropic(system: str, user: str, model_id: str, max_tokens: int) -> str:
+    """Call Anthropic API."""
+    import anthropic
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY not set. Add it on the Settings page.")
+
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=model_id,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return response.content[0].text.strip()
+
+
+# --- Query Helpers ---
+
 def _get_readonly_connection():
     """Open a read-only database connection."""
     uri = f"file:{db.DB_PATH}?mode=ro"
@@ -146,16 +223,35 @@ def _format_results(rows: list[dict], columns: list[str], max_rows: int = 50) ->
     return "\n".join(lines)
 
 
-def analyze(question: str, days: int = 30) -> str:
-    """Ask a free-form question about the user's health data.
+# --- Public API ---
 
-    Uses a two-step LLM approach:
-    1. Generate SQL from the question
-    2. Run the query and summarize results
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return "Error: ANTHROPIC_API_KEY not set. Please add it to your .env file."
+def get_available_models() -> list[dict]:
+    """Return list of available models with their info."""
+    models = []
+    for key, info in MODELS.items():
+        models.append({
+            "id": key,
+            "name": info["name"],
+            "backend": info["backend"],
+            "size": info["size"],
+        })
+    return models
+
+
+def check_ollama_status() -> dict:
+    """Check if Ollama is running and which models are pulled."""
+    try:
+        resp = httpx.get(f"{OLLAMA_BASE}/api/tags", timeout=5.0)
+        resp.raise_for_status()
+        pulled = [m["name"] for m in resp.json().get("models", [])]
+        return {"running": True, "models": pulled}
+    except Exception:
+        return {"running": False, "models": []}
+
+
+def analyze(question: str, days: int = 30, model: str | None = None) -> str:
+    """Ask a free-form question about the user's health data."""
+    model_key = model or os.environ.get("DEFAULT_MODEL", DEFAULT_MODEL)
 
     # Check we have data
     try:
@@ -166,18 +262,11 @@ def analyze(question: str, days: int = 30) -> str:
         return "No data available yet. Please sync your Garmin data first."
 
     today = date.today().isoformat()
-    client = anthropic.Anthropic(api_key=api_key)
 
     # Step 1: Generate SQL
     sql_prompt = SQL_SYSTEM_PROMPT.replace("{today}", today)
     try:
-        sql_response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=512,
-            system=sql_prompt,
-            messages=[{"role": "user", "content": question}],
-        )
-        raw_text = sql_response.content[0].text.strip()
+        raw_text = _call_llm(sql_prompt, question, model_key, max_tokens=512)
 
         # Parse JSON from response (handle markdown code blocks)
         if "```" in raw_text:
@@ -191,8 +280,9 @@ def analyze(question: str, days: int = 30) -> str:
         explanation = parsed.get("explanation", "")
     except (json.JSONDecodeError, IndexError, KeyError) as e:
         logger.warning(f"Failed to parse SQL response: {e}")
-        # Fall back to summary-based approach
-        return _fallback_analyze(client, question, days)
+        return _fallback_analyze(question, days, model_key)
+    except (ConnectionError, ValueError) as e:
+        return str(e)
 
     if not sql:
         return f"I can't answer that from the available Garmin data. {explanation}"
@@ -212,54 +302,30 @@ def analyze(question: str, days: int = 30) -> str:
         rows, columns = _run_query(sql)
     except sqlite3.Error as e:
         logger.warning(f"SQL query failed: {e}\nQuery: {sql}")
-        # Fall back to summary-based approach on SQL error
-        return _fallback_analyze(client, question, days)
+        return _fallback_analyze(question, days, model_key)
 
     results_text = _format_results(rows, columns)
 
     # Step 3: Summarize results
     try:
-        summary_response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
-            system=SUMMARY_SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"My question: {question}\n\n"
-                        f"SQL query used: {sql}\n"
-                        f"Query explanation: {explanation}\n\n"
-                        f"Data available from {min_date} to {max_date}.\n\n"
-                        f"Query results:\n{results_text}"
-                    ),
-                }
-            ],
+        summary_user = (
+            f"My question: {question}\n\n"
+            f"SQL query used: {sql}\n"
+            f"Query explanation: {explanation}\n\n"
+            f"Data available from {min_date} to {max_date}.\n\n"
+            f"Query results:\n{results_text}"
         )
-        return summary_response.content[0].text
+        return _call_llm(SUMMARY_SYSTEM_PROMPT, summary_user, model_key, max_tokens=1024)
     except Exception:
         logger.exception("Summary generation failed")
-        # At least return the raw results
         return f"**Query:** {explanation}\n\n{results_text}"
 
 
-def _fallback_analyze(client: anthropic.Anthropic, question: str, days: int) -> str:
+def _fallback_analyze(question: str, days: int, model_key: str) -> str:
     """Fallback: use the text summary approach if SQL generation fails."""
     data_summary = db.get_data_summary(days=days)
     if not data_summary.strip() or "===" not in data_summary:
         return "No data available yet. Please sync your Garmin data first."
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        system=SUMMARY_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Here is my recent health data:\n\n{data_summary}\n\nMy question: {question}"
-                ),
-            }
-        ],
-    )
-    return message.content[0].text
+    user_msg = f"Here is my recent health data:\n\n{data_summary}\n\nMy question: {question}"
+    return _call_llm(SUMMARY_SYSTEM_PROMPT, user_msg, model_key, max_tokens=1024)

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import structlog
 from garminconnect import Garmin
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decrypt_value
@@ -25,6 +26,9 @@ from app.models.user import GarminCredential
 
 logger = structlog.get_logger()
 
+# Token store directory — persists Garmin OAuth tokens to avoid repeated logins
+_TOKEN_DIR = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "personal" / "GarminTracker" / ".garminconnect"
+
 
 async def _get_garmin_client(db: AsyncSession, user_id: uuid.UUID) -> Garmin:
     """Decrypt stored credentials and return an authenticated Garmin client."""
@@ -32,14 +36,18 @@ async def _get_garmin_client(db: AsyncSession, user_id: uuid.UUID) -> Garmin:
     result = await db.execute(stmt)
     cred = result.scalar_one_or_none()
     if cred is None:
-        raise ValueError("No Garmin credentials stored for this user")
+        raise ValueError("No Garmin credentials stored. Go to Settings → Connect Garmin first.")
 
     email = decrypt_value(cred.encrypted_email)
     password = decrypt_value(cred.encrypted_password)
 
+    # Per-user token directory so tokens are cached between syncs
+    user_token_dir = _TOKEN_DIR / str(user_id)
+    user_token_dir.mkdir(parents=True, exist_ok=True)
+
     def _login():
         c = Garmin(email, password)
-        c.login()
+        c.login(tokenstore=str(user_token_dir))
         return c
 
     return await asyncio.to_thread(_login)
@@ -47,6 +55,59 @@ async def _get_garmin_client(db: AsyncSession, user_id: uuid.UUID) -> Garmin:
 
 def _today() -> date:
     return datetime.now(timezone.utc).date()
+
+
+async def _upsert_daily_stat(db: AsyncSession, user_id: uuid.UUID, target: date, data: dict) -> None:
+    """Insert or update a daily stat record."""
+    stmt = select(DailyStat).where(DailyStat.user_id == user_id, DailyStat.date == target)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.data = data
+    else:
+        db.add(DailyStat(user_id=user_id, date=target, data=data))
+
+
+async def _upsert_activity(db: AsyncSession, user_id: uuid.UUID, target: date, act: dict) -> None:
+    """Insert or update an activity record."""
+    act_id = act.get("activityId")
+    if not act_id:
+        return
+    stmt = select(Activity).where(Activity.id == act_id)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.data = act
+    else:
+        db.add(Activity(
+            id=act_id,
+            user_id=user_id,
+            date=target,
+            activity_type=act.get("activityType", {}).get("typeKey", ""),
+            data=act,
+        ))
+
+
+async def _upsert_sleep(db: AsyncSession, user_id: uuid.UUID, target: date, data: dict) -> None:
+    """Insert or update a sleep record."""
+    stmt = select(SleepRecord).where(SleepRecord.user_id == user_id, SleepRecord.date == target)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.data = data
+    else:
+        db.add(SleepRecord(user_id=user_id, date=target, data=data))
+
+
+async def _upsert_hr(db: AsyncSession, user_id: uuid.UUID, target: date, data: dict) -> None:
+    """Insert or update a heart rate record."""
+    stmt = select(HeartRateRecord).where(HeartRateRecord.user_id == user_id, HeartRateRecord.date == target)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.data = data
+    else:
+        db.add(HeartRateRecord(user_id=user_id, date=target, data=data))
 
 
 async def sync_user_data(
@@ -70,65 +131,25 @@ async def sync_user_data(
         # Daily stats
         stats = await asyncio.to_thread(client.get_stats, date_str)
         if stats:
-            stmt = (
-                pg_insert(DailyStat)
-                .values(user_id=user_id, date=target, data=stats)
-                .on_conflict_do_update(
-                    constraint="uq_daily_stat_user_date",
-                    set_={"data": stats},
-                )
-            )
-            await db.execute(stmt)
+            await _upsert_daily_stat(db, user_id, target, stats)
             records += 1
 
         # Activities
         activities = await asyncio.to_thread(client.get_activities_by_date, date_str, date_str)
         for act in activities or []:
-            act_id = act.get("activityId")
-            if act_id:
-                stmt = (
-                    pg_insert(Activity)
-                    .values(
-                        id=act_id,
-                        user_id=user_id,
-                        date=target,
-                        activity_type=act.get("activityType", {}).get("typeKey", ""),
-                        data=act,
-                    )
-                    .on_conflict_do_update(
-                        index_elements=["id"],
-                        set_={"data": act},
-                    )
-                )
-                await db.execute(stmt)
-                records += 1
+            await _upsert_activity(db, user_id, target, act)
+            records += 1
 
         # Sleep
         sleep = await asyncio.to_thread(client.get_sleep_data, date_str)
         if sleep:
-            stmt = (
-                pg_insert(SleepRecord)
-                .values(user_id=user_id, date=target, data=sleep)
-                .on_conflict_do_update(
-                    constraint="uq_sleep_user_date",
-                    set_={"data": sleep},
-                )
-            )
-            await db.execute(stmt)
+            await _upsert_sleep(db, user_id, target, sleep)
             records += 1
 
         # Heart rate
         hr = await asyncio.to_thread(client.get_heart_rates, date_str)
         if hr:
-            stmt = (
-                pg_insert(HeartRateRecord)
-                .values(user_id=user_id, date=target, data=hr)
-                .on_conflict_do_update(
-                    constraint="uq_hr_user_date",
-                    set_={"data": hr},
-                )
-            )
-            await db.execute(stmt)
+            await _upsert_hr(db, user_id, target, hr)
             records += 1
 
         log.status = SyncStatus.SUCCESS

@@ -53,21 +53,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const config = await getAuthConfig();
       if (!config.configured) {
-        // Dev mode: set a dev token and load user
-        localStorage.setItem("token", "dev-token");
-        const me = await getMe();
-        setUser(me);
+        // Dev mode — hit the backend's dev login endpoint directly
+        window.location.href = "/api/auth/google/login";
         return;
       }
-      // Redirect to Auth0
-      const params = new URLSearchParams({
-        response_type: "token",
-        client_id: config.client_id!,
-        redirect_uri: `${window.location.origin}/callback`,
-        audience: config.audience!,
-        scope: "openid profile email",
-      });
-      window.location.href = `https://${config.domain}/authorize?${params}`;
+      // Redirect to backend's Google OAuth login (backend handles the Google redirect)
+      window.location.href = "/api/auth/google/login";
     } catch (err) {
       console.error("Login failed:", err);
     }

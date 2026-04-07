@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup - Garmin Health Tracker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1117;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .setup-card {
+            background: #1a1d27;
+            border-radius: 16px;
+            padding: 36px;
+            border: 1px solid #2a2d37;
+            width: 100%;
+            max-width: 460px;
+        }
+        h1 { font-size: 1.4rem; margin-bottom: 6px; color: #fff; }
+        .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 28px; }
+        .field { margin-bottom: 18px; }
+        label {
+            display: block;
+            font-size: 0.8rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+        input {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid #2a2d37;
+            background: #0f1117;
+            color: #e0e0e0;
+            font-size: 0.95rem;
+        }
+        input:focus { outline: none; border-color: #4fc3f7; }
+        input::placeholder { color: #555; }
+        .section-label {
+            font-size: 0.75rem;
+            color: #4fc3f7;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 24px 0 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #2a2d37;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            border-radius: 8px;
+            border: none;
+            background: #4fc3f7;
+            color: #0f1117;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+        button:hover { background: #81d4fa; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status {
+            margin-top: 14px;
+            font-size: 0.85rem;
+            text-align: center;
+            min-height: 20px;
+        }
+        .status.error { color: #ef5350; }
+        .status.success { color: #66bb6a; }
+        .status.loading { color: #4fc3f7; }
+        .hint { font-size: 0.75rem; color: #555; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="setup-card">
+        <h1>Garmin Health Tracker</h1>
+        <p class="subtitle">Connect your accounts to get started</p>
+
+        <div class="section-label">Garmin Connect</div>
+        <div class="field">
+            <label for="garminEmail">Email</label>
+            <input type="email" id="garminEmail" placeholder="your@email.com" value="{{ garmin_email or '' }}" />
+        </div>
+        <div class="field">
+            <label for="garminPassword">Password</label>
+            <input type="password" id="garminPassword" placeholder="Garmin Connect password" />
+            {% if garmin_email %}
+            <p class="hint">Leave blank to keep existing password</p>
+            {% endif %}
+        </div>
+
+        <div class="section-label">AI Analysis</div>
+        <div class="field">
+            <label for="anthropicKey">Anthropic API Key</label>
+            <input type="password" id="anthropicKey" placeholder="sk-ant-..." value="{{ anthropic_key_masked or '' }}" />
+            <p class="hint">Used for natural language queries about your health data</p>
+        </div>
+
+        <button onclick="saveConfig(false)" id="saveBtn">Connect & Save</button>
+        <button onclick="saveConfig(true)" id="skipBtn" style="margin-top:8px; background:#2a2d37; color:#e0e0e0;">Save Without Validating</button>
+        <p class="hint" style="text-align:center; margin-top:6px;">Use this if Garmin is rate-limiting login attempts</p>
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        async function saveConfig(skipValidation = false) {
+            const btn = document.getElementById('saveBtn');
+            const status = document.getElementById('status');
+            const email = document.getElementById('garminEmail').value.trim();
+            const password = document.getElementById('garminPassword').value;
+            const apiKey = document.getElementById('anthropicKey').value.trim();
+
+            if (!email) {
+                status.textContent = 'Garmin email is required';
+                status.className = 'status error';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = skipValidation ? 'Saving...' : 'Validating...';
+            status.textContent = skipValidation ? 'Saving credentials...' : 'Testing Garmin connection...';
+            status.className = 'status loading';
+
+            try {
+                const res = await fetch('/api/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        garmin_email: email,
+                        garmin_password: password || null,
+                        anthropic_key: apiKey || null,
+                        skip_validation: skipValidation,
+                    }),
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    status.textContent = 'Connected! Redirecting...';
+                    status.className = 'status success';
+                    setTimeout(() => window.location.href = '/', 1000);
+                } else {
+                    status.textContent = data.message || 'Setup failed';
+                    status.className = 'status error';
+                }
+            } catch (e) {
+                status.textContent = 'Error: ' + e.message;
+                status.className = 'status error';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Connect & Save';
+        }
+
+        // Enter key submits
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') saveConfig();
+            });
+        });
+    </script>
+</body>
+</html>

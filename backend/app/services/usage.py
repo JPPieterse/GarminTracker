@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.billing import Subscription, SubscriptionTier, UsageRecord, UsageType
 
-FREE_AI_QUERIES_PER_MONTH = 5
+FREE_AI_QUERIES_PER_MONTH = 100
 
 
 async def track_usage(

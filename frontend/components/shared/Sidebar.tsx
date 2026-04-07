@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, MessageSquare, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Dumbbell, Settings, LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/ask", label: "Ask AI", icon: MessageSquare },
+  { href: "/dashboard/ask", label: "Coach", icon: Dumbbell },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
@@ -18,7 +18,7 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-card border-r border-border min-h-screen flex flex-col">
       <div className="p-6 border-b border-border">
-        <h1 className="text-xl font-bold text-brand">GarminTracker</h1>
+        <h1 className="text-xl font-heading font-bold text-brand tracking-wider">ZEV</h1>
       </div>
 
       <nav className="flex-1 p-4 space-y-1">

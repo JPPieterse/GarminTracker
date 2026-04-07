@@ -1,236 +1,413 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, Mic, MicOff, Volume2, VolumeX, Bot } from "lucide-react";
+import { Send, Mic, MicOff, Volume2, ArrowLeft, Check, CheckCheck } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import { askQuestion, getModels } from "@/lib/api";
-import type { AskResponse, ModelInfo } from "@/lib/types";
+import {
+  askQuestion,
+  getCoaches,
+  getOnboardingStatus,
+  sendOnboardingMessage,
+} from "@/lib/api";
+import type { Coach } from "@/lib/types";
 
-const SUGGESTED_CHIPS = [
-  "How did I sleep last week?",
-  "What's my average heart rate?",
-  "Am I more stressed than usual?",
-  "How many steps this month?",
-  "Compare my activity to last week",
-];
+interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+  time: string;
+}
 
-export default function AskPage() {
+function timeNow() {
+  return new Date().toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+// ── Coach Selection Screen ──────────────────────────────────────────────
+
+function CoachPicker({
+  coaches,
+  onSelect,
+}: {
+  coaches: Coach[];
+  onSelect: (c: Coach) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[70vh] px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center mb-10"
+      >
+        <h1 className="text-3xl font-heading font-bold text-[#e0e0e0] mb-2">
+          Choose Your Coach
+        </h1>
+        <p className="text-[#888] max-w-md">
+          Each coach has a different personality and expertise.
+          Pick the one that matches your vibe.
+        </p>
+      </motion.div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full">
+        {coaches.map((coach, i) => (
+          <motion.button
+            key={coach.id}
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1, duration: 0.4 }}
+            whileHover={{ y: -6, transition: { duration: 0.2 } }}
+            onClick={() => onSelect(coach)}
+            className="bg-card border border-border rounded-2xl p-6 text-left hover:border-brand/30 transition-colors group"
+          >
+            <div className="text-5xl mb-4">{coach.avatar}</div>
+            <h2
+              className="text-xl font-heading font-bold mb-1 group-hover:opacity-100 transition-opacity"
+              style={{ color: coach.color }}
+            >
+              {coach.name}
+            </h2>
+            <p className="text-xs text-[#888] uppercase tracking-wider mb-3">
+              {coach.title}
+            </p>
+            <p className="text-sm text-[#999] leading-relaxed">{coach.bio}</p>
+          </motion.button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── WhatsApp-style Chat ─────────────────────────────────────────────────
+
+function CoachChat({
+  coach,
+  onChangeCoach,
+}: {
+  coach: Coach;
+  onChangeCoach: () => void;
+}) {
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState<AskResponse | null>(null);
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [selectedModel, setSelectedModel] = useState("");
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  const [onboardingHistory, setOnboardingHistory] = useState<
+    { role: string; content: string }[]
+  >([]);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+  // Check onboarding status on mount
   useEffect(() => {
-    getModels()
-      .then((m) => {
-        setModels(m);
-        if (m.length > 0) setSelectedModel(m[0].id);
+    getOnboardingStatus()
+      .then(async (status) => {
+        if (status.needs_onboarding) {
+          setNeedsOnboarding(true);
+          // Start onboarding with this coach's personality
+          setLoading(true);
+          try {
+            const result = await sendOnboardingMessage("", []);
+            setMessages([
+              { role: "assistant", content: result.reply, time: timeNow() },
+            ]);
+            setOnboardingHistory([
+              { role: "assistant", content: result.reply },
+            ]);
+          } catch {
+            setNeedsOnboarding(false);
+          }
+          setLoading(false);
+        } else {
+          setNeedsOnboarding(false);
+          // Greeting from chosen coach
+          setMessages([
+            {
+              role: "assistant",
+              content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help. 💪`,
+              time: timeNow(),
+            },
+          ]);
+        }
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => setNeedsOnboarding(false));
+  }, [coach]);
 
-  const handleAsk = async (q?: string) => {
-    const text = q || question;
-    if (!text.trim()) return;
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
+  const handleSend = async (text?: string) => {
+    const msg = text || question;
+    if (!msg.trim() || loading) return;
+    setQuestion("");
+
+    const userMsg: ChatMsg = { role: "user", content: msg, time: timeNow() };
+    setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
-    setError("");
-    setAnswer(null);
 
     try {
-      const result = await askQuestion(
-        text.trim(),
-        selectedModel || undefined
-      );
-      setAnswer(result);
+      if (needsOnboarding) {
+        // Onboarding flow
+        const newApiHistory = [
+          ...onboardingHistory,
+          { role: "user", content: msg },
+        ];
+        const result = await sendOnboardingMessage(msg, onboardingHistory);
+        setOnboardingHistory([
+          ...newApiHistory,
+          { role: "assistant", content: result.reply },
+        ]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: result.reply, time: timeNow() },
+        ]);
+        if (result.complete) {
+          setNeedsOnboarding(false);
+          // Add a transition message
+          setTimeout(() => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: `Profile saved! From now on, I'll remember everything about you. Go ahead — ask me anything about your health data.`,
+                time: timeNow(),
+              },
+            ]);
+          }, 1500);
+        }
+      } else {
+        // Regular ask with coach
+        const result = await askQuestion(msg.trim(), undefined, coach.id);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: result.answer || "Hmm, I couldn't find data for that. Try rephrasing?",
+            time: timeNow(),
+          },
+        ]);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get answer");
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: err instanceof Error ? err.message : "Something went wrong.",
+          time: timeNow(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Speech-to-Text
   const toggleListening = () => {
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
       return;
     }
-
-    const SpeechRecognition =
-      (window as unknown as { SpeechRecognition?: typeof window.SpeechRecognition }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setError("Speech recognition is not supported in this browser.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const recognition = new SR();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = "en-US";
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0][0].transcript;
-      setQuestion(transcript);
+    recognition.onresult = (e: any) => {
+      setQuestion(e.results[0][0].transcript);
       setIsListening(false);
     };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
   };
 
-  // Text-to-Speech
-  const toggleSpeaking = () => {
-    if (isSpeaking) {
-      speechSynthesis.cancel();
-      setIsSpeaking(false);
-      return;
-    }
-
-    if (!answer?.answer) return;
-
-    const utterance = new SpeechSynthesisUtterance(answer.answer);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    speechSynthesis.speak(utterance);
-    setIsSpeaking(true);
+  const speak = (text: string) => {
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-[#e0e0e0]">Ask AI</h1>
-      <p className="text-[#888]">
-        Ask questions about your health data and get AI-powered insights.
-      </p>
-
-      {/* Model Selector */}
-      {models.length > 0 && (
-        <div>
-          <label className="block text-sm text-[#888] mb-1">Model</label>
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            className="bg-card border border-border rounded-lg px-3 py-2 text-[#e0e0e0] text-sm focus:outline-none focus:border-brand w-full max-w-xs"
-          >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Input Area */}
-      <div className="flex gap-2">
-        <div className="flex-1 relative">
-          <input
-            type="text"
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAsk()}
-            placeholder="Ask about your health data..."
-            className="w-full bg-card border border-border rounded-lg px-4 py-3 text-[#e0e0e0] placeholder-[#888] focus:outline-none focus:border-brand"
-          />
+    <div className="flex flex-col h-[calc(100vh-6rem)]">
+      {/* Chat header — WhatsApp style */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 border-b border-border"
+        style={{ backgroundColor: `${coach.color}08` }}
+      >
+        <span className="text-3xl">{coach.avatar}</span>
+        <div className="flex-1">
+          <p className="font-heading font-semibold text-[#e0e0e0]">
+            {coach.name}
+          </p>
+          <p className="text-xs text-[#888]">{coach.title}</p>
         </div>
         <button
+          onClick={onChangeCoach}
+          className="px-3 py-1.5 text-xs border border-border rounded-lg text-[#888] hover:text-[#e0e0e0] hover:border-brand/30 transition-colors"
+        >
+          Change Coach
+        </button>
+      </div>
+
+      {/* Chat area — WhatsApp wallpaper style */}
+      <div
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% 50%, rgba(79,195,247,0.03) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(171,71,188,0.03) 0%, transparent 50%)",
+        }}
+      >
+        <AnimatePresence>
+          {messages.map((msg, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[75%] rounded-2xl px-4 py-2.5 relative ${
+                  msg.role === "user"
+                    ? "bg-brand/15 border border-brand/20 rounded-tr-sm"
+                    : "bg-card border border-border rounded-tl-sm"
+                }`}
+              >
+                {msg.role === "assistant" && (
+                  <p
+                    className="text-xs font-semibold mb-1"
+                    style={{ color: coach.color }}
+                  >
+                    {coach.name}
+                  </p>
+                )}
+                <p className="text-sm text-[#e0e0e0] leading-relaxed whitespace-pre-wrap">
+                  {msg.content}
+                </p>
+                <div className="flex items-center justify-end gap-1.5 mt-1">
+                  <span className="text-[10px] text-[#666]">{msg.time}</span>
+                  {msg.role === "user" && (
+                    <CheckCheck size={12} className="text-brand/60" />
+                  )}
+                  {msg.role === "assistant" && (
+                    <button
+                      onClick={() => speak(msg.content)}
+                      className="text-[#555] hover:text-brand transition-colors ml-1"
+                    >
+                      <Volume2 size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {loading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex justify-start"
+          >
+            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3">
+              <p className="text-xs font-semibold mb-1" style={{ color: coach.color }}>
+                {coach.name}
+              </p>
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-[#888] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <div className="w-2 h-2 bg-[#888] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <div className="w-2 h-2 bg-[#888] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input bar — WhatsApp style */}
+      <div className="flex items-center gap-2 px-3 py-3 border-t border-border bg-card">
+        <button
           onClick={toggleListening}
-          className={`p-3 rounded-lg border transition-colors ${
+          className={`p-2.5 rounded-full transition-colors ${
             isListening
-              ? "bg-red-500/10 border-red-500/30 text-red-400"
-              : "bg-card border-border text-[#888] hover:text-[#e0e0e0]"
+              ? "bg-red-500/10 text-red-400"
+              : "text-[#888] hover:text-[#e0e0e0] hover:bg-border/30"
           }`}
-          title={isListening ? "Stop listening" : "Voice input"}
         >
           {isListening ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
+        <input
+          type="text"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSend()}
+          placeholder="Type a message..."
+          disabled={loading}
+          className="flex-1 bg-dark border border-border rounded-full px-4 py-2.5 text-sm text-[#e0e0e0] placeholder-[#666] focus:outline-none focus:border-brand/40 transition-colors disabled:opacity-50"
+        />
         <button
-          onClick={() => handleAsk()}
+          onClick={() => handleSend()}
           disabled={loading || !question.trim()}
-          className="px-5 py-3 bg-brand text-dark font-semibold rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 flex items-center gap-2"
+          className="p-2.5 bg-brand rounded-full text-dark hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
-          <Send size={16} />
-          Ask
+          <Send size={18} />
         </button>
       </div>
-
-      {/* Suggested Chips */}
-      <div className="flex flex-wrap gap-2">
-        {SUGGESTED_CHIPS.map((chip) => (
-          <button
-            key={chip}
-            onClick={() => {
-              setQuestion(chip);
-              handleAsk(chip);
-            }}
-            className="px-3 py-1.5 text-sm rounded-full border border-border text-[#888] hover:text-brand hover:border-brand/30 transition-colors"
-          >
-            {chip}
-          </button>
-        ))}
-      </div>
-
-      {/* Loading */}
-      {loading && <LoadingSpinner />}
-
-      {/* Error */}
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Answer Display */}
-      {answer && (
-        <div className="bg-card border border-border rounded-lg p-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-brand">
-              <Bot size={20} />
-              <span className="text-sm font-medium">
-                {answer.model || "AI"}
-              </span>
-            </div>
-            <button
-              onClick={toggleSpeaking}
-              className={`p-2 rounded-lg transition-colors ${
-                isSpeaking
-                  ? "text-brand bg-brand/10"
-                  : "text-[#888] hover:text-[#e0e0e0]"
-              }`}
-              title={isSpeaking ? "Stop speaking" : "Read aloud"}
-            >
-              {isSpeaking ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-          </div>
-          <p className="text-[#e0e0e0] leading-relaxed whitespace-pre-wrap">
-            {answer.answer}
-          </p>
-          {answer.sources && answer.sources.length > 0 && (
-            <div className="pt-2 border-t border-border">
-              <p className="text-xs text-[#888]">
-                Sources: {answer.sources.join(", ")}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
+}
+
+// ── Main Page ───────────────────────────────────────────────────────────
+
+export default function AskPage() {
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [selectedCoach, setSelectedCoach] = useState<Coach | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+
+  useEffect(() => {
+    // Check localStorage for previously selected coach
+    const savedCoachId =
+      typeof window !== "undefined" ? localStorage.getItem("selectedCoach") : null;
+
+    getCoaches()
+      .then((c) => {
+        setCoaches(c);
+        if (savedCoachId) {
+          const saved = c.find((coach) => coach.id === savedCoachId);
+          if (saved) setSelectedCoach(saved);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPageLoading(false));
+  }, []);
+
+  const handleSelectCoach = (coach: Coach) => {
+    setSelectedCoach(coach);
+    localStorage.setItem("selectedCoach", coach.id);
+  };
+
+  const handleChangeCoach = () => {
+    setSelectedCoach(null);
+    localStorage.removeItem("selectedCoach");
+  };
+
+  if (pageLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <LoadingSpinner size={48} />
+      </div>
+    );
+  }
+
+  if (!selectedCoach) {
+    return <CoachPicker coaches={coaches} onSelect={handleSelectCoach} />;
+  }
+
+  return <CoachChat coach={selectedCoach} onChangeCoach={handleChangeCoach} />;
 }

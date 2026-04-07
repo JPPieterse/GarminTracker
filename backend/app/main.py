@@ -25,7 +25,7 @@ def create_app() -> FastAPI:
     )
 
     app = FastAPI(
-        title="GarminTracker API",
+        title="ZEV API",
         version="1.0.0",
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url="/redoc" if settings.DEBUG else None,
@@ -63,6 +63,23 @@ def create_app() -> FastAPI:
     @app.get("/api/ping")
     async def ping():
         return {"status": "ok"}
+
+    @app.on_event("startup")
+    async def _create_tables():
+        """Auto-create tables for SQLite dev mode. Use Alembic in production."""
+        from app.core.database import engine
+        from app.models.base import Base
+
+        # Import all models so they register with Base.metadata
+        import app.models.user  # noqa: F401
+        import app.models.health  # noqa: F401
+        import app.models.chat  # noqa: F401
+        import app.models.billing  # noqa: F401
+        import app.models.sharing  # noqa: F401
+
+        if settings.DATABASE_URL.startswith("sqlite"):
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
 
     return app
 

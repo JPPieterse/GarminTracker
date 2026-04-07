@@ -9,6 +9,7 @@ import {
   Link as LinkIcon,
   ExternalLink,
   AlertTriangle,
+  Brain,
 } from "lucide-react";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useAuth } from "@/lib/auth";
@@ -22,6 +23,8 @@ import {
   getSharingLinks,
   revokeLink,
   deleteAccount,
+  getProfile,
+  updateProfile,
 } from "@/lib/api";
 import type { SubscriptionInfo, SharingLink } from "@/lib/types";
 
@@ -33,32 +36,62 @@ export default function SettingsPage() {
   const [sharingLinks, setSharingLinks] = useState<SharingLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [garminLoading, setGarminLoading] = useState(false);
+  const [garminEmail, setGarminEmail] = useState("");
+  const [garminPassword, setGarminPassword] = useState("");
+  const [showGarminForm, setShowGarminForm] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [message, setMessage] = useState("");
+  const [profileContext, setProfileContext] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
 
   useEffect(() => {
     Promise.all([
       getSubscription().catch(() => null),
       getSharingLinks().catch(() => []),
+      getProfile().catch(() => ({ context: "" })),
     ])
-      .then(([sub, links]) => {
+      .then(([sub, links, profile]) => {
         setSubscription(sub);
         setSharingLinks(links);
+        setProfileContext(profile?.context || "");
       })
       .finally(() => setLoading(false));
   }, []);
 
   const handleConnectGarmin = async () => {
+    if (!garminEmail || !garminPassword) {
+      setMessage("Please enter your Garmin email and password.");
+      return;
+    }
     setGarminLoading(true);
     try {
-      const result = await connectGarmin();
-      window.location.href = result.redirect_url;
+      await connectGarmin(garminEmail, garminPassword);
+      setMessage("Garmin connected successfully!");
+      setShowGarminForm(false);
+      setGarminEmail("");
+      setGarminPassword("");
     } catch (err) {
       setMessage(
         err instanceof Error ? err.message : "Failed to connect Garmin"
       );
+    } finally {
       setGarminLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    setProfileSaved(false);
+    try {
+      await updateProfile(profileContext);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 3000);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to save profile");
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -174,15 +207,94 @@ export default function SettingsPage() {
           >
             {garminLoading ? "Disconnecting..." : "Disconnect Garmin"}
           </button>
+        ) : showGarminForm ? (
+          <div className="space-y-3">
+            <input
+              type="email"
+              placeholder="Garmin email"
+              value={garminEmail}
+              onChange={(e) => setGarminEmail(e.target.value)}
+              className="w-full px-3 py-2 bg-dark border border-border rounded-lg text-[#e0e0e0] text-sm placeholder-[#666] focus:border-brand/50 focus:outline-none transition-colors"
+            />
+            <input
+              type="password"
+              placeholder="Garmin password"
+              value={garminPassword}
+              onChange={(e) => setGarminPassword(e.target.value)}
+              className="w-full px-3 py-2 bg-dark border border-border rounded-lg text-[#e0e0e0] text-sm placeholder-[#666] focus:border-brand/50 focus:outline-none transition-colors"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleConnectGarmin}
+                disabled={garminLoading}
+                className="px-4 py-2 bg-brand text-dark font-semibold rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 text-sm"
+              >
+                {garminLoading ? "Connecting..." : "Connect"}
+              </button>
+              <button
+                onClick={() => setShowGarminForm(false)}
+                className="px-4 py-2 border border-border text-[#888] rounded-lg hover:text-[#e0e0e0] transition-colors text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="text-xs text-[#666]">
+              Your credentials are encrypted and stored securely.
+            </p>
+          </div>
         ) : (
           <button
-            onClick={handleConnectGarmin}
-            disabled={garminLoading}
-            className="px-4 py-2 bg-brand text-dark font-semibold rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 text-sm"
+            onClick={() => setShowGarminForm(true)}
+            className="px-4 py-2 bg-brand text-dark font-semibold rounded-lg hover:bg-brand/90 transition-colors text-sm"
           >
-            {garminLoading ? "Connecting..." : "Connect Garmin"}
+            Connect Garmin
           </button>
         )}
+      </section>
+
+      {/* Health Profile — AI Context */}
+      <section className="bg-card border border-border rounded-lg p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <Brain className="text-brand" size={22} />
+          <h2 className="text-lg font-semibold text-[#e0e0e0]">
+            Your Health Profile
+          </h2>
+        </div>
+        <p className="text-sm text-[#888] mb-4">
+          Tell the AI about yourself in your own words. This context is included
+          in every AI conversation so it always knows who you are, what you're
+          working towards, and how to help you. Write as much or as little as
+          you want.
+        </p>
+        <textarea
+          value={profileContext}
+          onChange={(e) => setProfileContext(e.target.value)}
+          placeholder={`Write anything you want the AI to always know about you. For example:
+
+• I'm 32, male, 82kg. I run 3-4x per week and do strength training 2x.
+• My goal is to run a sub-50 min 10K by December.
+• I have a recurring left knee issue from an old rugby injury.
+• I usually sleep around 11pm, wake at 6am. I track with a Garmin Venu 3.
+• I follow a high-protein diet, trying to stay around 2200 cal/day.
+• I'm training for the Comrades Marathon in 2027.
+• My resting heart rate has been trending up — I want to understand why.
+
+The more context you give, the more personalized and useful the AI becomes.`}
+          rows={12}
+          className="w-full px-4 py-3 bg-dark border border-border rounded-lg text-[#e0e0e0] text-sm placeholder-[#555] focus:border-brand/50 focus:outline-none transition-colors resize-y leading-relaxed"
+        />
+        <div className="flex items-center gap-3 mt-3">
+          <button
+            onClick={handleSaveProfile}
+            disabled={profileSaving}
+            className="px-5 py-2 bg-brand text-dark font-semibold rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 text-sm"
+          >
+            {profileSaving ? "Saving..." : "Save Profile"}
+          </button>
+          {profileSaved && (
+            <span className="text-sm text-green-400">Saved! The AI will use this context in all future conversations.</span>
+          )}
+        </div>
       </section>
 
       {/* Subscription */}

@@ -147,6 +147,13 @@
         <!-- Ask -->
         <div class="card">
             <h2>Ask About Your Health Data</h2>
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+                <label for="modelSelect" style="font-size:0.8rem; color:#888; white-space:nowrap;">Model:</label>
+                <select id="modelSelect" style="padding:8px 10px; border-radius:8px; border:1px solid #2a2d37; background:#0f1117; color:#e0e0e0; font-size:0.85rem; min-width:200px;">
+                    <option value="phi4-mini">Loading models...</option>
+                </select>
+                <span id="modelStatus" style="font-size:0.7rem; color:#555; white-space:nowrap;"></span>
+            </div>
             <div class="ask-form">
                 <input type="text" class="ask-input" id="questionInput"
                     placeholder="e.g. How has my sleep quality changed this month?" />
@@ -198,6 +205,51 @@
     <script>
         let chart = null;
 
+        // Load available models
+        async function loadModels() {
+            try {
+                const res = await fetch('/api/models');
+                const data = await res.json();
+                const select = document.getElementById('modelSelect');
+                const status = document.getElementById('modelStatus');
+                select.innerHTML = '';
+
+                const local = data.models.filter(m => m.backend === 'ollama');
+                const cloud = data.models.filter(m => m.backend === 'anthropic');
+                const pulledModels = data.ollama.models || [];
+
+                if (local.length) {
+                    const group = document.createElement('optgroup');
+                    group.label = 'Local (Ollama)';
+                    local.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m.id;
+                        const pulled = pulledModels.some(p => p.startsWith(m.id.split(':')[0]));
+                        opt.textContent = m.name + (pulled ? '' : ' [not downloaded]');
+                        opt.disabled = !pulled;
+                        group.appendChild(opt);
+                    });
+                    select.appendChild(group);
+                }
+                if (cloud.length) {
+                    const group = document.createElement('optgroup');
+                    group.label = 'Cloud (API key required)';
+                    cloud.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m.id;
+                        opt.textContent = m.name;
+                        group.appendChild(opt);
+                    });
+                    select.appendChild(group);
+                }
+
+                status.textContent = data.ollama.running ? 'Ollama running' : 'Ollama not running';
+                status.style.color = data.ollama.running ? '#66bb6a' : '#ef5350';
+            } catch (e) {
+                console.error('Failed to load models:', e);
+            }
+        }
+
         // Load stats on page load
         async function loadStats() {
             try {
@@ -224,10 +276,11 @@
             box.textContent = 'Analyzing your health data...';
             box.className = 'answer loading';
             try {
+                const model = document.getElementById('modelSelect').value;
                 const res = await fetch('/api/ask', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ question: q, days: 30 }),
+                    body: JSON.stringify({ question: q, days: 30, model: model }),
                 });
                 const data = await res.json();
                 box.textContent = data.answer || data.error || 'No response';
@@ -324,6 +377,7 @@
         }
 
         // Init
+        loadModels();
         loadStats();
         loadChart('steps');
     </script>

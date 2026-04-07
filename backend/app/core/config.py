@@ -14,13 +14,12 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # ── Database ─────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/garmintracker"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./garmin.db"
 
-    # ── Auth0 ────────────────────────────────────────────────
-    AUTH0_DOMAIN: str = ""
-    AUTH0_CLIENT_ID: str = ""
-    AUTH0_CLIENT_SECRET: str = ""
-    AUTH0_AUDIENCE: str = ""
+    # ── Google OAuth ─────────────────────────────────────────
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    JWT_SECRET: str = "change-me-in-production"  # Used to sign our own JWTs
 
     # ── Encryption (Fernet key for PII) ──────────────────────
     ENCRYPTION_KEY: str = ""
@@ -43,7 +42,7 @@ class Settings(BaseSettings):
     R2_ENDPOINT_URL: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
-    R2_BUCKET_NAME: str = "garmintracker"
+    R2_BUCKET_NAME: str = "zev"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

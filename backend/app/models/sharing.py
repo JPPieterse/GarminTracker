@@ -5,8 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -35,7 +34,7 @@ class MedicalRecord(UUIDMixin, TimestampMixin, Base):
     title: Mapped[str] = mapped_column(String(512))
     content: Mapped[str] = mapped_column(Text, default="")
     file_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class DoctorAnnotation(UUIDMixin, TimestampMixin, Base):
@@ -44,7 +43,7 @@ class DoctorAnnotation(UUIDMixin, TimestampMixin, Base):
     doctor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text)
-    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class AuditAction(str, enum.Enum):

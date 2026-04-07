@@ -37,7 +37,7 @@ export default function DoctorLayout({
     <div className="min-h-screen bg-dark">
       <header className="flex items-center justify-between px-8 py-4 border-b border-border">
         <h1 className="text-xl font-bold text-brand">
-          GarminTracker — Doctor Portal
+          ZEV — Doctor Portal
         </h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-[#888]">{user.name}</span>

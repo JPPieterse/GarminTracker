@@ -1,8 +1,8 @@
-"""Auth0 JWT validation, dev-mode bypass, role enforcement, Fernet encryption."""
+"""Google OAuth2 verification, JWT signing, dev-mode bypass, role enforcement, Fernet encryption."""
 
 from __future__ import annotations
 
-import functools
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -19,27 +19,65 @@ from app.models.user import User, UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
-# ── JWKS cache ───────────────────────────────────────────────────────────────
+# ── JWT helpers (sign our own tokens after Google login) ────────────────────
 
-_jwks_cache: dict[str, Any] | None = None
-
-
-async def _get_jwks() -> dict[str, Any]:
-    global _jwks_cache
-    if _jwks_cache is None:
-        url = f"https://{settings.AUTH0_DOMAIN}/.well-known/jwks.json"
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=10)
-            resp.raise_for_status()
-            _jwks_cache = resp.json()
-    return _jwks_cache
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 24 * 7  # 1 week
 
 
-def _find_rsa_key(jwks: dict[str, Any], kid: str) -> dict[str, str] | None:
-    for key in jwks.get("keys", []):
-        if key["kid"] == kid:
-            return {k: key[k] for k in ("kty", "kid", "use", "n", "e")}
-    return None
+def create_access_token(user_id: str, email: str, name: str) -> str:
+    """Create a signed JWT for an authenticated user."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "name": name,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
+    """Decode and verify one of our JWTs."""
+    return jwt.decode(token, settings.JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+
+# ── Google OAuth2 helpers ──────────────────────────────────────────────────
+
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+
+
+async def exchange_google_code(code: str, redirect_uri: str) -> dict[str, Any]:
+    """Exchange an authorization code for Google tokens."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "code": code,
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=401, detail=f"Google token exchange failed: {resp.text}")
+        return resp.json()
+
+
+async def get_google_userinfo(access_token: str) -> dict[str, Any]:
+    """Fetch user profile from Google using an access token."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="Failed to fetch Google user info")
+        return resp.json()
 
 
 # ── Fernet helpers ───────────────────────────────────────────────────────────
@@ -66,7 +104,7 @@ def decrypt_value(token: str) -> str:
     return _get_fernet().decrypt(token.encode()).decode()
 
 
-# ── Dev user (when AUTH0_DOMAIN is empty) ────────────────────────────────────
+# ── Dev user (when GOOGLE_CLIENT_ID is empty) ────────────────────────────────
 
 _DEV_USER_PAYLOAD = {
     "sub": "dev|local",
@@ -77,70 +115,47 @@ _DEV_USER_PAYLOAD = {
 
 # ── Token verification ──────────────────────────────────────────────────────
 
-async def _verify_token(token: str) -> dict[str, Any]:
-    """Verify an Auth0 JWT and return the decoded payload."""
-    if not settings.AUTH0_DOMAIN:
-        # Dev mode — accept any token or none
-        return _DEV_USER_PAYLOAD
-
-    jwks = await _get_jwks()
-    try:
-        unverified_header = jwt.get_unverified_header(token)
-    except JWTError as exc:
-        raise HTTPException(status_code=401, detail="Invalid token header") from exc
-
-    rsa_key = _find_rsa_key(jwks, unverified_header.get("kid", ""))
-    if rsa_key is None:
-        raise HTTPException(status_code=401, detail="Unable to find signing key")
-
-    try:
-        payload = jwt.decode(
-            token,
-            rsa_key,
-            algorithms=["RS256"],
-            audience=settings.AUTH0_AUDIENCE,
-            issuer=f"https://{settings.AUTH0_DOMAIN}/",
-        )
-    except JWTError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-    return payload
-
-
-# ── Auto-provision + current user dependency ─────────────────────────────────
-
 async def get_current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Validate JWT, auto-provision user on first login, return User ORM object."""
-    if not settings.AUTH0_DOMAIN:
+    """Validate our JWT, auto-provision user on first login, return User ORM object."""
+    if not settings.GOOGLE_CLIENT_ID:
         # Dev mode — return or create dev user
         payload = _DEV_USER_PAYLOAD
-        token_str = ""
     else:
         if creds is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
-        token_str = creds.credentials  # noqa: F841
-        payload = await _verify_token(creds.credentials)
+        try:
+            payload = decode_access_token(creds.credentials)
+        except JWTError as exc:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
 
     sub = payload["sub"]
-    provider, _, subject = sub.partition("|")
 
-    stmt = select(User).where(User.auth_provider == provider, User.auth_subject == subject)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        user = User(
-            email=payload.get("email", ""),
-            name=payload.get("name", ""),
-            auth_provider=provider,
-            auth_subject=subject,
-            role=UserRole.PATIENT,
-        )
-        db.add(user)
-        await db.flush()
+    if sub == "dev|local":
+        # Dev mode — find or create dev user by auth_subject
+        stmt = select(User).where(User.auth_subject == sub)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None:
+            user = User(
+                email=payload.get("email", ""),
+                name=payload.get("name", ""),
+                auth_provider="dev",
+                auth_subject=sub,
+                role=UserRole.PATIENT,
+            )
+            db.add(user)
+            await db.flush()
+    else:
+        # Production — sub is the user's database UUID
+        import uuid as _uuid
+        stmt = select(User).where(User.id == _uuid.UUID(sub))
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
 
     return user
 

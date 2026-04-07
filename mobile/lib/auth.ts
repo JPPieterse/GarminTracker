@@ -8,9 +8,9 @@ const AUTH0_DOMAIN = process.env.EXPO_PUBLIC_AUTH0_DOMAIN ?? "YOUR_AUTH0_DOMAIN"
 const AUTH0_CLIENT_ID =
   process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID ?? "YOUR_AUTH0_CLIENT_ID";
 const AUTH0_AUDIENCE =
-  process.env.EXPO_PUBLIC_AUTH0_AUDIENCE ?? "https://api.garmintracker.com";
+  process.env.EXPO_PUBLIC_AUTH0_AUDIENCE ?? "https://api.zev.fitness";
 
-const redirectUri = AuthSession.makeRedirectUri({ scheme: "garmintracker" });
+const redirectUri = AuthSession.makeRedirectUri({ scheme: "zev" });
 
 const discovery: AuthSession.DiscoveryDocument = {
   authorizationEndpoint: `https://${AUTH0_DOMAIN}/authorize`,

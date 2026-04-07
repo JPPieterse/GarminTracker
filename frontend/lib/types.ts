@@ -28,7 +28,7 @@ export interface AskResponse {
 export interface SyncResult {
   status: string;
   records_synced: number;
-  message?: string;
+  error?: string | null;
 }
 
 export interface ModelInfo {
@@ -69,9 +69,39 @@ export interface PatientDetail {
   annotations: Annotation[];
 }
 
+export interface Coach {
+  id: string;
+  name: string;
+  title: string;
+  avatar: string;
+  color: string;
+  bio: string;
+  style: string;
+}
+
 export interface Annotation {
   id: string;
   text: string;
   created_at: string;
   metric?: string;
+}
+
+export interface SleepBreakdown {
+  date: string;
+  deep: number | null;
+  light: number | null;
+  rem: number | null;
+  awake: number | null;
+  total: number | null;
+}
+
+export interface ActivitySummary {
+  date: string;
+  type: string;
+  name: string;
+  duration_min: number;
+  distance_km: number | null;
+  calories: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
 }
