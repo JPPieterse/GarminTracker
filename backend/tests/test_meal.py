@@ -211,3 +211,37 @@ async def test_handle_meal_log_no_tag(db_session, test_user):
     text = "Sure, here's some advice about protein intake."
     result = await _handle_meal_log(db_session, test_user.id, text, user_timezone=None)
     assert result == text
+
+
+from unittest.mock import AsyncMock, patch
+import io
+
+
+@pytest.mark.asyncio
+async def test_meal_analyze_endpoint_rejects_no_image(client):
+    """POST /health/meal/analyze returns 422 without an image."""
+    response = await client.post("/api/health/meal/analyze")
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_meal_analyze_endpoint_calls_analyze(client, db_session, test_user):
+    """POST /health/meal/analyze calls analyze_meal and returns the answer."""
+    mock_result = {"answer": "Nice meal!", "results": [], "model": "test", "count": 0}
+
+    with patch("app.api.health.llm_analyzer.analyze_meal", new_callable=AsyncMock, return_value=mock_result):
+        # Create a tiny valid PNG (1x1 pixel)
+        png_bytes = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+            b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
+            b"\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
+            b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        response = await client.post(
+            "/api/health/meal/analyze",
+            files={"image": ("meal.png", io.BytesIO(png_bytes), "image/png")},
+            data={"message": "lunch"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Nice meal!"

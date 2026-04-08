@@ -1,12 +1,13 @@
 """Health data endpoints: sync, ask, chart, stats, models, export, delete account."""
 
+import base64
 import io
 import json
 import zipfile
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +64,32 @@ async def sync_data(
         "records_synced": log.records_synced,
         "error": log.error_message,
     }
+
+
+@router.post("/meal/analyze")
+async def analyze_meal_photo(
+    image: UploadFile = File(...),
+    message: str = Form(""),
+    coach: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Analyze a meal photo and log estimated nutrition data."""
+    contents = await image.read()
+    image_b64 = base64.b64encode(contents).decode("utf-8")
+    media_type = image.content_type or "image/jpeg"
+
+    await usage.track_usage(db, user.id, UsageType.AI_QUERY)
+
+    result = await llm_analyzer.analyze_meal(
+        db=db,
+        user_id=user.id,
+        image_base64=image_b64,
+        media_type=media_type,
+        message=message,
+        coach_id=coach or None,
+    )
+    return result
 
 
 @router.get("/chat/history")
