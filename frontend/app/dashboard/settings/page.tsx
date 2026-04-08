@@ -262,7 +262,7 @@ export default function SettingsPage() {
         </div>
         <p className="text-sm text-[#888] mb-4">
           Tell the AI about yourself in your own words. This context is included
-          in every AI conversation so it always knows who you are, what you're
+          in every AI conversation so it always knows who you are, what you&apos;re
           working towards, and how to help you. Write as much or as little as
           you want.
         </p>

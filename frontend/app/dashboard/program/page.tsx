@@ -130,7 +130,7 @@ export default function ProgramPage() {
           <div className="flex items-center gap-2 mb-2">
             <span className="text-lg">💬</span>
             <p className="text-xs text-brand font-medium uppercase tracking-wider">
-              Coach's Note
+              Coach&apos;s Note
             </p>
           </div>
           <p className="text-sm text-[#ccc] leading-relaxed">

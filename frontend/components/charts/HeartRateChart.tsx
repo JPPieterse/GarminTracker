@@ -64,7 +64,7 @@ export default function HeartRateChart({ resting, max, min }: HeartRateChartProp
     dateMap.set(d.date, entry);
   }
 
-  const chartData = [...dateMap.values()]
+  const chartData = Array.from(dateMap.values())
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((d) => ({ ...d, displayDate: formatDate(d.date) }));
 

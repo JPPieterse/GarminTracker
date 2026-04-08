@@ -58,7 +58,7 @@ export default function ActivityChart({ data }: ActivityChartProps) {
   }
 
   // Group by activity type
-  const types = [...new Set(data.map((d) => d.type))];
+  const types = Array.from(new Set(data.map((d) => d.type)));
 
   return (
     <ResponsiveContainer width="100%" height={320}>

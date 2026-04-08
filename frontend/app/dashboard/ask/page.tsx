@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, Mic, MicOff, Volume2, ArrowLeft, Check, CheckCheck } from "lucide-react";
+import { Send, Mic, MicOff, Volume2, ArrowLeft, Check, CheckCheck, Paperclip, ImageIcon, Camera, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import {
@@ -10,6 +10,7 @@ import {
   getChatHistory,
   getOnboardingStatus,
   sendOnboardingMessage,
+  analyzeMeal,
 } from "@/lib/api";
 import type { Coach } from "@/lib/types";
 
@@ -98,8 +99,13 @@ function CoachChat({
   const [onboardingHistory, setOnboardingHistory] = useState<
     { role: string; content: string }[]
   >([]);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // Check onboarding status on mount
   useEffect(() => {
@@ -170,16 +176,22 @@ function CoachChat({
 
   const handleSend = async (text?: string) => {
     const msg = text || question;
-    if (!msg.trim() || loading) return;
+    if ((!msg.trim() && !pendingImage) || loading) return;
     setQuestion("");
 
-    const userMsg: ChatMsg = { role: "user", content: msg, time: timeNow() };
+    const displayText = pendingImage
+      ? `Sent a photo${msg.trim() ? ": " + msg.trim() : ""}`
+      : msg;
+
+    const userMsg: ChatMsg = { role: "user", content: displayText, time: timeNow() };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
+    const imageToSend = pendingImage;
+    clearImage();
+
     try {
       if (needsOnboarding) {
-        // Onboarding flow
         const newApiHistory = [
           ...onboardingHistory,
           { role: "user", content: msg },
@@ -195,20 +207,28 @@ function CoachChat({
         ]);
         if (result.complete) {
           setNeedsOnboarding(false);
-          // Add a transition message
           setTimeout(() => {
             setMessages((prev) => [
               ...prev,
               {
                 role: "assistant",
-                content: `Profile saved! From now on, I'll remember everything about you. Go ahead — ask me anything about your health data.`,
+                content: "Profile saved! From now on, I'll remember everything about you. Go ahead — ask me anything about your health data.",
                 time: timeNow(),
               },
             ]);
           }, 1500);
         }
+      } else if (imageToSend) {
+        const result = await analyzeMeal(imageToSend, msg.trim(), coach.id);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: result.answer || "I had trouble analyzing that photo. Could you try again?",
+            time: timeNow(),
+          },
+        ]);
       } else {
-        // Regular ask with coach
         const result = await askQuestion(msg.trim(), undefined, coach.id);
         setMessages((prev) => [
           ...prev,
@@ -255,6 +275,28 @@ function CoachChat({
     recognition.start();
     setIsListening(true);
   };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPendingImage(file);
+    setImagePreview(URL.createObjectURL(file));
+    setShowAttachMenu(false);
+    e.target.value = "";
+  };
+
+  const clearImage = () => {
+    setPendingImage(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+  };
+
+  useEffect(() => {
+    if (!showAttachMenu) return;
+    const close = () => setShowAttachMenu(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [showAttachMenu]);
 
   const speak = (text: string) => {
     speechSynthesis.cancel();
@@ -359,8 +401,72 @@ function CoachChat({
         <div ref={chatEndRef} />
       </div>
 
+      {/* Hidden file inputs */}
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageSelect}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleImageSelect}
+      />
+
+      {/* Image preview */}
+      {imagePreview && (
+        <div className="px-3 py-2 border-t border-border bg-card">
+          <div className="relative inline-block">
+            <img
+              src={imagePreview}
+              alt="Meal preview"
+              className="h-20 w-20 object-cover rounded-lg border border-border"
+            />
+            <button
+              onClick={clearImage}
+              className="absolute -top-2 -right-2 bg-dark border border-border rounded-full p-0.5 text-[#888] hover:text-red-400 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Input bar — WhatsApp style */}
       <div className="flex items-center gap-2 px-3 py-3 border-t border-border bg-card">
+        {/* Attach button */}
+        <div className="relative">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAttachMenu(!showAttachMenu); }}
+            className="p-2.5 rounded-full text-[#888] hover:text-[#e0e0e0] hover:bg-border/30 transition-colors"
+          >
+            <Paperclip size={20} />
+          </button>
+          {showAttachMenu && (
+            <div className="absolute bottom-12 left-0 bg-card border border-border rounded-xl shadow-lg py-2 min-w-[160px] z-10">
+              <button
+                onClick={() => { galleryInputRef.current?.click(); setShowAttachMenu(false); }}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-[#e0e0e0] hover:bg-border/30 transition-colors"
+              >
+                <ImageIcon size={18} className="text-brand" />
+                Gallery
+              </button>
+              <button
+                onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-[#e0e0e0] hover:bg-border/30 transition-colors"
+              >
+                <Camera size={18} className="text-[#66bb6a]" />
+                Camera
+              </button>
+            </div>
+          )}
+        </div>
+
         <button
           onClick={toggleListening}
           className={`p-2.5 rounded-full transition-colors ${
@@ -376,13 +482,13 @@ function CoachChat({
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Type a message..."
+          placeholder={pendingImage ? "Add a message about this meal..." : "Type a message..."}
           disabled={loading}
           className="flex-1 bg-dark border border-border rounded-full px-4 py-2.5 text-sm text-[#e0e0e0] placeholder-[#666] focus:outline-none focus:border-brand/40 transition-colors disabled:opacity-50"
         />
         <button
           onClick={() => handleSend()}
-          disabled={loading || !question.trim()}
+          disabled={loading || (!question.trim() && !pendingImage)}
           className="p-2.5 bg-brand rounded-full text-dark hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           <Send size={18} />
