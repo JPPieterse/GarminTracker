@@ -683,8 +683,16 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
     import json
     from app.models.workout import WorkoutProgram
 
-    if "[PROGRAM_UPDATE]" not in answer_text:
+    # Detect program data — either via explicit tag or via a JSON block with program structure
+    has_tag = "[PROGRAM_UPDATE]" in answer_text
+    has_program_json = not has_tag and '```json' in answer_text and '"days"' in answer_text and '"exercises"' in answer_text
+
+    if not has_tag and not has_program_json:
         return answer_text
+
+    # If no tag but looks like program JSON, treat it as tagged
+    if has_program_json and not has_tag:
+        answer_text = answer_text.replace('```json', '[PROGRAM_UPDATE]\n```json', 1)
 
     # Extract JSON from the response
     json_match = re.search(r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*(.*?)\s*```", answer_text, re.DOTALL)
