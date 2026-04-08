@@ -41,6 +41,11 @@ _MODULE_KEYWORDS: dict[str, list[str]] = {
         "creatine", "vitamin", "hydration", "water", "pre-workout meal",
         "post-workout meal", "breakfast", "dinner", "lunch",
     ],
+    "meal-photo-analysis": [
+        "photo", "picture", "image", "meal", "food", "ate", "eating",
+        "plate", "portion", "serving", "snack", "breakfast", "lunch",
+        "dinner", "macros", "calories", "nutrition", "what did i eat",
+    ],
     "weight-loss": [
         "weight loss", "lose weight", "fat loss", "lose fat", "deficit",
         "calorie deficit", "cutting weight", "diet", "tdee",
