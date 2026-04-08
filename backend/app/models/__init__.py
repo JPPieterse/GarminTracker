@@ -6,3 +6,4 @@ from app.models.health import DailyStat, Activity, SleepRecord, HeartRateRecord,
 from app.models.sharing import DoctorPatientLink, MedicalRecord, DoctorAnnotation, AuditLog  # noqa: F401
 from app.models.billing import Subscription, UsageRecord  # noqa: F401
 from app.models.chat import ChatMessage  # noqa: F401
+from app.models.meal import MealLog  # noqa: F401
