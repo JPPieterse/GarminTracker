@@ -111,6 +111,45 @@ export function syncData(): Promise<SyncResult> {
   return fetchApi("/health/sync", { method: "POST", body: JSON.stringify({}) });
 }
 
+export async function analyzeMeal(
+  image: File,
+  message?: string,
+  coach?: string
+): Promise<AskResponse> {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  const formData = new FormData();
+  formData.append("image", image);
+  if (message) formData.append("message", message);
+  if (coach) formData.append("coach", coach);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch("/api/health/meal/analyze", {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = `Request failed (${res.status})`;
+    try {
+      const json = JSON.parse(body);
+      msg = json.detail || json.message || msg;
+    } catch {
+      // use default
+    }
+    throw new ApiError(msg, res.status);
+  }
+
+  return res.json();
+}
+
 // AI
 export function askQuestion(
   question: string,
