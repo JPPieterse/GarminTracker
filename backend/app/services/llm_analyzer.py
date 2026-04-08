@@ -708,38 +708,38 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
 
     if not json_match:
         logger.warning("program_update_tag_found_but_no_json")
-        return answer_text.replace("[PROGRAM_UPDATE]", "").strip()
+        # Fall through to cleanup code below to strip the JSON block
+    else:
+        try:
+            program_data = json.loads(json_match.group(1))
+            program_name = program_data.pop("name", "Training Program")
+            coach_note = program_data.pop("coach_note", "")
 
-    try:
-        program_data = json.loads(json_match.group(1))
-        program_name = program_data.pop("name", "Training Program")
-        coach_note = program_data.pop("coach_note", "")
-
-        # Deactivate existing programs
-        existing = await db.execute(
-            select(WorkoutProgram).where(
-                WorkoutProgram.user_id == user_id, WorkoutProgram.active.is_(True)
+            # Deactivate existing programs
+            existing = await db.execute(
+                select(WorkoutProgram).where(
+                    WorkoutProgram.user_id == user_id, WorkoutProgram.active.is_(True)
+                )
             )
-        )
-        for prog in existing.scalars():
-            prog.active = False
+            for prog in existing.scalars():
+                prog.active = False
 
-        # Create new program
-        program = WorkoutProgram(
-            user_id=user_id,
-            coach_id=coach_id or "aria",
-            name=program_name,
-            coach_note=coach_note,
-            active=True,
-            program_data=program_data,
-        )
-        db.add(program)
-        await db.flush()
+            # Create new program
+            program = WorkoutProgram(
+                user_id=user_id,
+                coach_id=coach_id or "aria",
+                name=program_name,
+                coach_note=coach_note,
+                active=True,
+                program_data=program_data,
+            )
+            db.add(program)
+            await db.flush()
 
-        logger.info("program_updated_from_chat", user_id=str(user_id), program_name=program_name)
+            logger.info("program_updated_from_chat", user_id=str(user_id), program_name=program_name)
 
-    except (json.JSONDecodeError, KeyError) as exc:
-        logger.error("program_update_json_parse_failed", error=str(exc))
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.error("program_update_json_parse_failed", error=str(exc))
 
     # Clean the response — remove the tag and any JSON block (fenced or bare)
     # First try: complete fenced code block with closing ```
