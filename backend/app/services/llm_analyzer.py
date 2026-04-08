@@ -633,13 +633,19 @@ async def _chat_response(
     if knowledge:
         system += f"\n{knowledge}"
 
-    # Use higher token limit when program updates might be needed
+    # Use higher token limit when program updates might be needed.
+    # Check both the current question AND recent history — user might say "yes"
+    # in response to "Ready for me to create that program?"
+    combined_text = question.lower()
+    for h in history[-3:]:
+        combined_text += " " + h.get("content", "").lower()
     needs_program = any(
-        kw in question.lower()
+        kw in combined_text
         for kw in ["program", "exercise", "swap", "change", "replace", "add", "remove",
-                    "workout", "split", "routine", "plan", "build me", "create a", "adjust"]
+                    "workout", "split", "routine", "plan", "build me", "create a", "adjust",
+                    "create", "lock in", "map out", "design", "ready"]
     )
-    max_tokens = 4096 if needs_program else 1024
+    max_tokens = 8192 if needs_program else 1024
 
     messages = [*history, {"role": "user", "content": question}]
     response = await client.messages.create(
@@ -736,19 +742,22 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
         logger.error("program_update_json_parse_failed", error=str(exc))
 
     # Clean the response — remove the tag and any JSON block (fenced or bare)
-    # First remove [PROGRAM_UPDATE] + fenced code block (greedy to catch full JSON)
+    # First try: complete fenced code block with closing ```
     clean = re.sub(
         r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*.*?```",
         "",
         answer_text,
         flags=re.DOTALL,
     ).strip()
+    # If tag still present, the JSON block may be truncated (no closing ```)
+    if "[PROGRAM_UPDATE]" in clean:
+        clean = re.sub(r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*.*", "", clean, flags=re.DOTALL).strip()
     # If tag still present, remove tag + bare JSON object
     if "[PROGRAM_UPDATE]" in clean:
-        clean = re.sub(r"\[PROGRAM_UPDATE\]\s*\{.*\}", "", clean, flags=re.DOTALL).strip()
-    # Catch any orphaned large JSON blocks (the LLM sometimes omits the tag before JSON)
-    if "```json" in clean and clean.count("```") >= 2:
-        clean = re.sub(r"```json\s*\{.*?\}\s*```", "", clean, flags=re.DOTALL).strip()
+        clean = re.sub(r"\[PROGRAM_UPDATE\]\s*\{.*", "", clean, flags=re.DOTALL).strip()
+    # Catch any orphaned JSON blocks (LLM omitted tag, complete or truncated)
+    if "```json" in clean:
+        clean = re.sub(r"```json\s*\{.*?(```|$)", "", clean, flags=re.DOTALL).strip()
     # Remove any remaining [PROGRAM_UPDATE] tags
     clean = clean.replace("[PROGRAM_UPDATE]", "").strip()
 
