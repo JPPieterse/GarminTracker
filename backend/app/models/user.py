@@ -51,6 +51,9 @@ class UserProfile(UUIDMixin, TimestampMixin, Base):
     # One big free-form document — the user writes this in natural language
     context: Mapped[str] = mapped_column(Text, default="")
 
+    # IANA timezone string, e.g. "Africa/Johannesburg"
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     user: Mapped[User] = relationship(back_populates="profile")
 
 

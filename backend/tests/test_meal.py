@@ -71,3 +71,43 @@ async def test_meal_log_optional_fields(db_session, test_user):
     assert saved.sodium_mg is None
     assert saved.hydration_ml is None
     assert saved.notes is None
+
+
+from app.models.user import UserProfile
+
+
+@pytest.mark.asyncio
+async def test_user_profile_timezone(db_session, test_user):
+    """UserProfile stores timezone string."""
+    profile = UserProfile(
+        user_id=test_user.id,
+        context="Test user context",
+        timezone="Africa/Johannesburg",
+    )
+    db_session.add(profile)
+    await db_session.commit()
+
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(UserProfile).where(UserProfile.user_id == test_user.id)
+    )
+    saved = result.scalar_one()
+    assert saved.timezone == "Africa/Johannesburg"
+
+
+@pytest.mark.asyncio
+async def test_user_profile_timezone_defaults_none(db_session, test_user):
+    """UserProfile.timezone defaults to None when not set."""
+    profile = UserProfile(
+        user_id=test_user.id,
+        context="Test user context",
+    )
+    db_session.add(profile)
+    await db_session.commit()
+
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(UserProfile).where(UserProfile.user_id == test_user.id)
+    )
+    saved = result.scalar_one()
+    assert saved.timezone is None
