@@ -87,9 +87,11 @@ function CoachPicker({
 function CoachChat({
   coach,
   onChangeCoach,
+  previousCoachId,
 }: {
   coach: Coach;
   onChangeCoach: () => void;
+  previousCoachId: string | null;
 }) {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -145,12 +147,33 @@ function CoachChat({
                   : "",
               }));
               setMessages(restored);
+
+              // Coach handover — if switching from a different coach, generate intro
+              if (previousCoachId && previousCoachId !== coach.id) {
+                setLoading(true);
+                try {
+                  const handover = await askQuestion(
+                    `[SYSTEM: The user just switched from a different coach to you. Introduce yourself briefly in your style, acknowledge you can see the conversation history and their data, and pick up naturally where things left off. Keep it to 2-3 sentences. Do NOT create or modify any programs.]`,
+                    undefined,
+                    coach.id
+                  );
+                  if (handover.answer) {
+                    setMessages((prev) => [
+                      ...prev,
+                      { role: "assistant", content: handover.answer, time: timeNow() },
+                    ]);
+                  }
+                } catch {
+                  // Silent fail — not critical
+                }
+                setLoading(false);
+              }
             } else {
               // No history — show greeting
               setMessages([
                 {
                   role: "assistant",
-                  content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help. 💪`,
+                  content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help.`,
                   time: timeNow(),
                 },
               ]);
@@ -160,7 +183,7 @@ function CoachChat({
             setMessages([
               {
                 role: "assistant",
-                content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help. 💪`,
+                content: `Hey! I'm ${coach.name}, your ${coach.title.toLowerCase()}. Ask me anything about your health data — I'm here to help.`,
                 time: timeNow(),
               },
             ]);
@@ -503,6 +526,7 @@ function CoachChat({
 export default function AskPage() {
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [selectedCoach, setSelectedCoach] = useState<Coach | null>(null);
+  const [previousCoachId, setPreviousCoachId] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
   useEffect(() => {
@@ -523,13 +547,16 @@ export default function AskPage() {
   }, []);
 
   const handleSelectCoach = (coach: Coach) => {
+    // Track previous coach for handover
+    const prevId = selectedCoach?.id || localStorage.getItem("selectedCoach");
+    setPreviousCoachId(prevId || null);
     setSelectedCoach(coach);
     localStorage.setItem("selectedCoach", coach.id);
   };
 
   const handleChangeCoach = () => {
+    setPreviousCoachId(selectedCoach?.id || null);
     setSelectedCoach(null);
-    localStorage.removeItem("selectedCoach");
   };
 
   if (pageLoading) {
@@ -544,5 +571,5 @@ export default function AskPage() {
     return <CoachPicker coaches={coaches} onSelect={handleSelectCoach} />;
   }
 
-  return <CoachChat coach={selectedCoach} onChangeCoach={handleChangeCoach} />;
+  return <CoachChat coach={selectedCoach} onChangeCoach={handleChangeCoach} previousCoachId={previousCoachId} />;
 }
