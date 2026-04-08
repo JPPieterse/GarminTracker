@@ -6,7 +6,7 @@ import enum
 import uuid
 from datetime import date, time
 
-from sqlalchemy import Date, Float, ForeignKey, Integer, String, Text, Time
+from sqlalchemy import Date, Enum, Float, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -35,7 +35,7 @@ class MealLog(UUIDMixin, TimestampMixin, Base):
     )
     date: Mapped[date] = mapped_column(Date, index=True)
     time: Mapped[time] = mapped_column(Time)
-    meal_type: Mapped[MealType] = mapped_column(String(16))
+    meal_type: Mapped[MealType] = mapped_column(Enum(MealType, native_enum=False))
     calories: Mapped[int] = mapped_column(Integer)
     protein_g: Mapped[float] = mapped_column(Float)
     carbs_g: Mapped[float] = mapped_column(Float)
@@ -43,6 +43,6 @@ class MealLog(UUIDMixin, TimestampMixin, Base):
     fiber_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     sodium_mg: Mapped[float | None] = mapped_column(Float, nullable=True)
     ingredients: Mapped[str] = mapped_column(Text)
-    confidence: Mapped[MealConfidence] = mapped_column(String(8))
+    confidence: Mapped[MealConfidence] = mapped_column(Enum(MealConfidence, native_enum=False))
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     hydration_ml: Mapped[int | None] = mapped_column(Integer, nullable=True)

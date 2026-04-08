@@ -65,6 +65,11 @@ Tables (SQLite with JSON columns):
   JSON fields: data.max_metrics (VO2 max, training load), data.fitness_age (fitness age data),
   data.race_predictions (predicted 5K, 10K, half marathon, marathon times)
 
+- meal_logs: id (UUID), user_id (UUID), date (DATE), time (TIME), meal_type (VARCHAR: BREAKFAST/LUNCH/DINNER/SNACK),
+  calories (INT), protein_g (FLOAT), carbs_g (FLOAT), fat_g (FLOAT),
+  fiber_g (FLOAT, nullable), sodium_mg (FLOAT, nullable), ingredients (TEXT),
+  confidence (VARCHAR: HIGH/MEDIUM/LOW), notes (TEXT, nullable), hydration_ml (INT, nullable)
+
 IMPORTANT — Use SQLite json_extract() syntax:
   json_extract(data, '$.fieldName') to get a value
   CAST(json_extract(data, '$.fieldName') AS REAL) for numeric comparisons/aggregations
@@ -733,6 +738,143 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
     return clean
 
 
+async def _handle_meal_log(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    answer_text: str,
+    user_timezone: str | None = None,
+) -> str:
+    """Detect [MEAL_LOG] in the response, extract JSON, save MealLog record."""
+    import json
+    from datetime import datetime, timezone as tz
+    from app.models.meal import MealLog, MealType, MealConfidence
+
+    if "[MEAL_LOG]" not in answer_text:
+        return answer_text
+
+    # Extract JSON — try with code fences first, then bare JSON
+    json_match = re.search(r"\[MEAL_LOG\]\s*```(?:json)?\s*(.*?)\s*```", answer_text, re.DOTALL)
+    if not json_match:
+        json_match = re.search(r"\[MEAL_LOG\]\s*(\{.*?\})", answer_text, re.DOTALL)
+
+    if not json_match:
+        logger.warning("meal_log_tag_found_but_no_json")
+        return answer_text.replace("[MEAL_LOG]", "").strip()
+
+    try:
+        data = json.loads(json_match.group(1))
+
+        # Determine local time
+        now_utc = datetime.now(tz.utc)
+        if user_timezone:
+            try:
+                from zoneinfo import ZoneInfo
+                local_now = now_utc.astimezone(ZoneInfo(user_timezone))
+            except Exception:
+                local_now = now_utc
+        else:
+            local_now = now_utc
+
+        local_date = local_now.date()
+        local_time = local_now.time().replace(microsecond=0)
+
+        # Auto-infer meal type from local hour
+        hour = local_now.hour
+        if hour < 10:
+            meal_type = MealType.BREAKFAST
+        elif hour < 14:
+            meal_type = MealType.LUNCH
+        elif hour < 17:
+            meal_type = MealType.SNACK
+        else:
+            meal_type = MealType.DINNER
+
+        confidence_str = data.get("confidence", "MEDIUM").upper()
+        try:
+            confidence = MealConfidence(confidence_str)
+        except ValueError:
+            confidence = MealConfidence.MEDIUM
+
+        meal = MealLog(
+            user_id=user_id,
+            date=local_date,
+            time=local_time,
+            meal_type=meal_type,
+            calories=int(data.get("calories", 0)),
+            protein_g=float(data.get("protein_g", 0)),
+            carbs_g=float(data.get("carbs_g", 0)),
+            fat_g=float(data.get("fat_g", 0)),
+            fiber_g=float(data["fiber_g"]) if data.get("fiber_g") is not None else None,
+            sodium_mg=float(data["sodium_mg"]) if data.get("sodium_mg") is not None else None,
+            ingredients=data.get("ingredients", ""),
+            confidence=confidence,
+            notes=data.get("notes"),
+            hydration_ml=int(data["hydration_ml"]) if data.get("hydration_ml") is not None else None,
+        )
+        db.add(meal)
+        await db.flush()
+
+        logger.info("meal_logged", user_id=str(user_id), calories=meal.calories)
+
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        logger.error("meal_log_json_parse_failed", error=str(exc))
+
+    # Clean the tag from response
+    clean = re.sub(
+        r"\[MEAL_LOG\]\s*```(?:json)?\s*.*?\s*```",
+        "",
+        answer_text,
+        flags=re.DOTALL,
+    ).strip()
+    if not clean:
+        clean = re.sub(r"\[MEAL_LOG\]\s*\{.*?\}", "", answer_text, flags=re.DOTALL).strip()
+
+    return clean or "I've logged that meal for you!"
+
+
+async def _build_today_meal_summary(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    user_timezone: str | None = None,
+) -> str:
+    """Build a summary of today's meals for context in meal analysis."""
+    from datetime import datetime, timezone as tz
+    from app.models.meal import MealLog
+
+    now_utc = datetime.now(tz.utc)
+    if user_timezone:
+        try:
+            from zoneinfo import ZoneInfo
+            local_now = now_utc.astimezone(ZoneInfo(user_timezone))
+        except Exception:
+            local_now = now_utc
+    else:
+        local_now = now_utc
+
+    today = local_now.date()
+
+    stmt = select(MealLog).where(
+        MealLog.user_id == user_id,
+        MealLog.date == today,
+    ).order_by(MealLog.time)
+    result = await db.execute(stmt)
+    meals = list(result.scalars())
+
+    if not meals:
+        return "\n\nNo meals logged today yet."
+
+    total_cal = sum(m.calories for m in meals)
+    total_protein = sum(m.protein_g for m in meals)
+    total_carbs = sum(m.carbs_g for m in meals)
+    total_fat = sum(m.fat_g for m in meals)
+
+    parts = [f"\n\n## Today's Meals So Far ({total_cal} cal, {total_protein:.0f}g P, {total_carbs:.0f}g C, {total_fat:.0f}g F)"]
+    for m in meals:
+        parts.append(f"- {m.meal_type.value.title()} ({m.time.strftime('%H:%M')}): {m.calories}cal — {m.ingredients}")
+
+    return "\n".join(parts)
+
+
 async def ask(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -848,3 +990,120 @@ async def ask_stream(
         yield chunk
 
     await _save_message(db, user_id, ChatRole.ASSISTANT, full_response, model_used="claude-sonnet-4-20250514")
+
+
+MEAL_ANALYSIS_SYSTEM_PROMPT = """You are analyzing a photo of a meal to estimate its nutritional content.
+You are also an AI health coach having a natural conversation.
+
+## Estimation Approach
+- Give your best practical estimate based on what you can see
+- You are providing coaching guidance for everyday wellness, NOT clinical measurements
+- If a meal is complex or portions are hard to judge, say so honestly and give a range
+- This is not competition prep or medical dietary management — frame estimates as approximations
+- When genuinely uncertain about an ingredient or portion, ask a clarifying question
+
+## Response Format
+1. First, respond conversationally as the coach — comment on the meal, relate it to the user's goals
+2. Include a [MEAL_LOG] tag with structured JSON:
+
+[MEAL_LOG]
+```json
+{"calories": 650, "protein_g": 42, "carbs_g": 55, "fat_g": 22, "fiber_g": 8, "sodium_mg": 480, "ingredients": "item1 ~portion, item2 ~portion", "confidence": "HIGH"}
+```
+
+3. After the tag, continue conversationally — add context about daily totals, suggestions, etc.
+
+Confidence levels:
+- HIGH: Clear photo, identifiable ingredients, standard portions
+- MEDIUM: Some ambiguity in portions or preparation — mention this
+- LOW: Blurry photo, complex mixed dish, genuinely uncertain — give rough range and ask questions
+"""
+
+
+async def analyze_meal(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    image_base64: str,
+    media_type: str,
+    message: str = "",
+    coach_id: str | None = None,
+) -> dict[str, Any]:
+    """Analyze a meal photo using Claude vision and log nutrition data."""
+    from app.services.coaches import get_coach
+    from app.models.user import UserProfile
+
+    history = await _get_recent_history(db, user_id)
+    user_content = message or "Here's a photo of my meal."
+    await _save_message(db, user_id, ChatRole.USER, f"Sent a photo{': ' + message if message else ''}")
+
+    # Load context
+    profile_context = await _get_user_profile(db, user_id)
+
+    tz_stmt = select(UserProfile.timezone).where(UserProfile.user_id == user_id)
+    tz_result = await db.execute(tz_stmt)
+    user_timezone = tz_result.scalar_one_or_none()
+
+    snapshot = await _build_recent_snapshot(db, user_id, user_timezone)
+    timezone_ctx = _build_timezone_context(user_timezone)
+    meal_summary = await _build_today_meal_summary(db, user_id, user_timezone)
+
+    coach = get_coach(coach_id) if coach_id else None
+    coach_prompt = coach["system_addendum"] if coach else ""
+
+    # Build system prompt
+    system = MEAL_ANALYSIS_SYSTEM_PROMPT
+    if coach_prompt:
+        system += f"\n\n{coach_prompt}"
+    if profile_context:
+        system += f"\n{profile_context}"
+    if timezone_ctx:
+        system += timezone_ctx
+    if snapshot:
+        system += snapshot
+    if meal_summary:
+        system += meal_summary
+
+    # Inject knowledge
+    knowledge = get_relevant_knowledge("meal food photo calories macros nutrition")
+    if knowledge:
+        system += f"\n{knowledge}"
+
+    # Build message with image
+    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    messages = [
+        *history,
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_base64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": user_content,
+                },
+            ],
+        },
+    ]
+
+    model_used = "claude-sonnet-4-20250514"
+    response = await client.messages.create(
+        model=model_used,
+        max_tokens=1024,
+        system=system,
+        messages=messages,
+    )
+
+    answer_text = response.content[0].text
+
+    # Extract and save meal log
+    answer_text = await _handle_meal_log(db, user_id, answer_text, user_timezone)
+
+    await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used=model_used)
+
+    return {"answer": answer_text, "results": [], "model": model_used, "count": 0}

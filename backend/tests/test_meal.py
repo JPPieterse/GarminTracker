@@ -169,3 +169,45 @@ async def test_build_recent_snapshot_shows_gap(db_session, test_user):
     snapshot = await _build_recent_snapshot(db_session, test_user.id)
 
     assert "10 days ago" in snapshot or "ago" in snapshot
+
+
+@pytest.mark.asyncio
+async def test_handle_meal_log_extracts_json(db_session, test_user):
+    """_handle_meal_log extracts structured data from response and saves MealLog."""
+    from app.services.llm_analyzer import _handle_meal_log
+    from app.models.meal import MealLog, MealType
+    from sqlalchemy import select
+
+    response_text = '''That looks like a solid post-workout meal! I can see grilled chicken breast with brown rice and steamed broccoli.
+
+[MEAL_LOG]
+```json
+{"calories": 650, "protein_g": 42, "carbs_g": 55, "fat_g": 22, "fiber_g": 8, "sodium_mg": 480, "ingredients": "grilled chicken breast ~180g, brown rice ~1 cup, steamed broccoli ~1 cup, olive oil drizzle", "confidence": "HIGH"}
+```
+
+Great choice for recovery — that's about 42g of protein which is right in the sweet spot after a workout.'''
+
+    clean = await _handle_meal_log(db_session, test_user.id, response_text, user_timezone=None)
+
+    # Tag should be stripped
+    assert "[MEAL_LOG]" not in clean
+    assert "grilled chicken breast" in clean  # conversational text preserved
+
+    # MealLog should be saved
+    result = await db_session.execute(
+        select(MealLog).where(MealLog.user_id == test_user.id)
+    )
+    meal = result.scalar_one()
+    assert meal.calories == 650
+    assert meal.protein_g == 42.0
+    assert meal.confidence.value == "HIGH"
+
+
+@pytest.mark.asyncio
+async def test_handle_meal_log_no_tag(db_session, test_user):
+    """_handle_meal_log returns text unchanged when no tag present."""
+    from app.services.llm_analyzer import _handle_meal_log
+
+    text = "Sure, here's some advice about protein intake."
+    result = await _handle_meal_log(db_session, test_user.id, text, user_timezone=None)
+    assert result == text
