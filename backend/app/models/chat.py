@@ -24,3 +24,4 @@ class ChatMessage(UUIDMixin, TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text)
     sql_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_used: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    coach_id: Mapped[str | None] = mapped_column(String(32), nullable=True)

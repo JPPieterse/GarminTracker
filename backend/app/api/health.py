@@ -113,6 +113,7 @@ async def get_chat_history(
             "role": m.role.value.lower(),
             "content": m.content,
             "created_at": m.created_at.isoformat() if m.created_at else None,
+            "coach_id": m.coach_id,
         }
         for m in messages
     ]

@@ -390,6 +390,7 @@ async def _save_message(
     content: str,
     sql_query: str | None = None,
     model_used: str | None = None,
+    coach_id: str | None = None,
 ) -> ChatMessage:
     msg = ChatMessage(
         user_id=user_id,
@@ -397,6 +398,7 @@ async def _save_message(
         content=content,
         sql_query=sql_query,
         model_used=model_used,
+        coach_id=coach_id,
     )
     db.add(msg)
     await db.flush()
@@ -929,7 +931,7 @@ async def ask(
             )
             # Check if the coach wants to update the program
             answer_text = await _handle_program_update(db, user_id, answer_text, coach_id or "")
-            await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used=model_used)
+            await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used=model_used, coach_id=coach_id)
             return {"answer": answer_text, "results": [], "model": model_used, "count": 0}
 
         # DATA route — generate SQL, execute, summarize
@@ -966,7 +968,7 @@ async def ask(
         else:
             answer_text = "I don't have any data matching that query. Try asking about a different time period or metric."
 
-        await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, sql_query=sql, model_used=model_used)
+        await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, sql_query=sql, model_used=model_used, coach_id=coach_id)
 
         return {"answer": answer_text, "sql": sql, "results": rows, "model": model_used, "count": len(rows)}
 
@@ -978,13 +980,13 @@ async def ask(
             snapshot=snapshot, timezone_ctx=timezone_ctx
         )
         answer_text = await _handle_program_update(db, user_id, answer_text, coach_id or "")
-        await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used="claude-sonnet-4-20250514")
+        await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used="claude-sonnet-4-20250514", coach_id=coach_id)
         return {"answer": answer_text, "results": [], "model": "claude-sonnet-4-20250514", "count": 0}
 
     except Exception as exc:
         logger.error("llm_ask_failed", user_id=str(user_id), error=str(exc))
         error_msg = "Sorry, I couldn't process that question. Please try rephrasing it."
-        await _save_message(db, user_id, ChatRole.ASSISTANT, error_msg, model_used=model or "unknown")
+        await _save_message(db, user_id, ChatRole.ASSISTANT, error_msg, model_used=model or "unknown", coach_id=coach_id)
         return {"answer": error_msg, "results": [], "model": model or "unknown", "count": 0}
 
 
@@ -1117,6 +1119,6 @@ async def analyze_meal(
     # Extract and save meal log
     answer_text = await _handle_meal_log(db, user_id, answer_text, user_timezone)
 
-    await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used=model_used)
+    await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used=model_used, coach_id=coach_id)
 
     return {"answer": answer_text, "results": [], "model": model_used, "count": 0}

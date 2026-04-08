@@ -18,6 +18,7 @@ interface ChatMsg {
   role: "user" | "assistant";
   content: string;
   time: string;
+  coachId?: string | null;
 }
 
 function timeNow() {
@@ -86,13 +87,17 @@ function CoachPicker({
 
 function CoachChat({
   coach,
+  coaches,
   onChangeCoach,
   previousCoachId,
 }: {
   coach: Coach;
+  coaches: Coach[];
   onChangeCoach: () => void;
   previousCoachId: string | null;
 }) {
+  // Build a lookup map for resolving coach names/colors from coachId
+  const coachMap = Object.fromEntries(coaches.map((c) => [c.id, c]));
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,7 +140,7 @@ function CoachChat({
           try {
             const history = await getChatHistory(30);
             if (history.length > 0) {
-              const restored: ChatMsg[] = history.map((m) => ({
+              const restored: ChatMsg[] = history.map((m: any) => ({
                 role: m.role as "user" | "assistant",
                 content: m.content,
                 time: m.created_at
@@ -145,6 +150,7 @@ function CoachChat({
                       hour12: false,
                     })
                   : "",
+                coachId: m.coach_id || null,
               }));
               setMessages(restored);
 
@@ -160,7 +166,7 @@ function CoachChat({
                   if (handover.answer) {
                     setMessages((prev) => [
                       ...prev,
-                      { role: "assistant", content: handover.answer, time: timeNow() },
+                      { role: "assistant", content: handover.answer, time: timeNow(), coachId: coach.id },
                     ]);
                   }
                 } catch {
@@ -226,7 +232,7 @@ function CoachChat({
         ]);
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: result.reply, time: timeNow() },
+          { role: "assistant", content: result.reply, time: timeNow(), coachId: coach.id },
         ]);
         if (result.complete) {
           setNeedsOnboarding(false);
@@ -237,6 +243,7 @@ function CoachChat({
                 role: "assistant",
                 content: "Profile saved! From now on, I'll remember everything about you. Go ahead — ask me anything about your health data.",
                 time: timeNow(),
+                coachId: coach.id,
               },
             ]);
           }, 1500);
@@ -249,6 +256,7 @@ function CoachChat({
             role: "assistant",
             content: result.answer || "I had trouble analyzing that photo. Could you try again?",
             time: timeNow(),
+            coachId: coach.id,
           },
         ]);
       } else {
@@ -259,6 +267,7 @@ function CoachChat({
             role: "assistant",
             content: result.answer || "Hmm, I couldn't find data for that. Try rephrasing?",
             time: timeNow(),
+            coachId: coach.id,
           },
         ]);
       }
@@ -269,6 +278,7 @@ function CoachChat({
           role: "assistant",
           content: err instanceof Error ? err.message : "Something went wrong.",
           time: timeNow(),
+          coachId: coach.id,
         },
       ]);
     } finally {
@@ -372,14 +382,17 @@ function CoachChat({
                     : "bg-card border border-border rounded-tl-sm"
                 }`}
               >
-                {msg.role === "assistant" && (
-                  <p
-                    className="text-xs font-semibold mb-1"
-                    style={{ color: coach.color }}
-                  >
-                    {coach.name}
-                  </p>
-                )}
+                {msg.role === "assistant" && (() => {
+                  const msgCoach = msg.coachId ? coachMap[msg.coachId] : null;
+                  return (
+                    <p
+                      className="text-xs font-semibold mb-1"
+                      style={{ color: (msgCoach || coach).color }}
+                    >
+                      {(msgCoach || coach).name}
+                    </p>
+                  );
+                })()}
                 <p className="text-sm text-[#e0e0e0] leading-relaxed whitespace-pre-wrap">
                   {msg.content}
                 </p>
@@ -571,5 +584,5 @@ export default function AskPage() {
     return <CoachPicker coaches={coaches} onSelect={handleSelectCoach} />;
   }
 
-  return <CoachChat coach={selectedCoach} onChangeCoach={handleChangeCoach} previousCoachId={previousCoachId} />;
+  return <CoachChat coach={selectedCoach} coaches={coaches} onChangeCoach={handleChangeCoach} previousCoachId={previousCoachId} />;
 }
