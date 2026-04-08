@@ -533,8 +533,14 @@ You're having a natural conversation with the user about their health, fitness, 
 You can create and update the user's training program. The program appears in their "Program" tab
 where they follow it during workouts, log weights/reps, and track progress.
 
-When the user asks you to create a program, adjust exercises, change the split, swap exercises,
-modify sets/reps, or make any program change, include a [PROGRAM_UPDATE] tag in your response.
+ONLY create or modify the program when the user EXPLICITLY asks you to. Examples of explicit requests:
+"Create me a program", "Change my Monday exercises", "Swap squats for leg press", "Update my plan".
+
+Do NOT proactively suggest or create program changes during general conversation. Discussing training
+ideas, goals, or preferences is just conversation — it does not mean "update my program". Wait for
+the user to clearly ask for a change before including the [PROGRAM_UPDATE] tag.
+
+When the user does explicitly ask for a program change, include a [PROGRAM_UPDATE] tag in your response.
 
 Format:
 [PROGRAM_UPDATE]
@@ -719,15 +725,22 @@ async def _handle_program_update(db: AsyncSession, user_id: uuid.UUID, answer_te
     except (json.JSONDecodeError, KeyError) as exc:
         logger.error("program_update_json_parse_failed", error=str(exc))
 
-    # Clean the response — remove the JSON block, keep the conversational part
+    # Clean the response — remove the tag and any JSON block (fenced or bare)
+    # First remove [PROGRAM_UPDATE] + fenced code block (greedy to catch full JSON)
     clean = re.sub(
-        r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*.*?\s*```",
+        r"\[PROGRAM_UPDATE\]\s*```(?:json)?\s*.*?```",
         "",
         answer_text,
         flags=re.DOTALL,
     ).strip()
-    if not clean:
-        clean = re.sub(r"\[PROGRAM_UPDATE\]\s*\{.*\}", "", answer_text, flags=re.DOTALL).strip()
+    # If tag still present, remove tag + bare JSON object
+    if "[PROGRAM_UPDATE]" in clean:
+        clean = re.sub(r"\[PROGRAM_UPDATE\]\s*\{.*\}", "", clean, flags=re.DOTALL).strip()
+    # Catch any orphaned large JSON blocks (the LLM sometimes omits the tag before JSON)
+    if "```json" in clean and clean.count("```") >= 2:
+        clean = re.sub(r"```json\s*\{.*?\}\s*```", "", clean, flags=re.DOTALL).strip()
+    # Remove any remaining [PROGRAM_UPDATE] tags
+    clean = clean.replace("[PROGRAM_UPDATE]", "").strip()
 
     # Add a note that the program was updated
     if clean:
