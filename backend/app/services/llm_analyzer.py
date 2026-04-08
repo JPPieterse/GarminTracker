@@ -314,6 +314,22 @@ async def _build_recent_snapshot(
     return "\n".join(lines)
 
 
+def _build_timezone_context(user_timezone: str | None) -> str:
+    """Build a timezone context string for the coach prompt."""
+    if not user_timezone:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import datetime, timezone as tz
+        now_utc = datetime.now(tz.utc)
+        user_now = now_utc.astimezone(ZoneInfo(user_timezone))
+        time_str = user_now.strftime("%H:%M %Z")
+        date_str = user_now.strftime("%Y-%m-%d")
+        return f"\n\nThe user's current local time is {time_str} ({user_timezone}). Today's date in their timezone is {date_str}."
+    except Exception:
+        return ""
+
+
 def _extract_sql(raw: str) -> str:
     """Extract SQL from a response that may include markdown code fences."""
     match = re.search(r"```sql\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
@@ -421,6 +437,7 @@ async def _summarize_results(
     results: list[dict],
     profile_context: str = "",
     coach_prompt: str = "",
+    snapshot: str = "",
 ) -> str:
     """Use Claude to turn raw SQL results into a natural-language answer."""
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -429,6 +446,9 @@ async def _summarize_results(
     system = SUMMARY_SYSTEM_PROMPT
     if coach_prompt:
         system += f"\n\n{coach_prompt}"
+
+    if snapshot:
+        system += snapshot
 
     # Inject relevant domain knowledge for context-aware summaries
     knowledge = get_relevant_knowledge(question)
@@ -564,8 +584,9 @@ current program in the context below (if one exists).
 4. If the user shares body composition data, measurements, or test results, acknowledge them,
    explain what they mean, and relate them to the user's goals
 5. Keep responses concise — 2-5 sentences unless the topic warrants more detail (program updates can be longer)
-6. If the user asks something that would need their actual tracked data (steps, sleep, HR),
-   let them know you can look that up if they ask specifically
+6. You always have access to the user's recent health data (shown below). Reference it
+   naturally in conversation — don't wait for them to ask. For historical queries beyond
+   what's shown, the system will automatically look up the data.
 """
 
 
@@ -575,6 +596,8 @@ async def _chat_response(
     profile_context: str = "",
     coach_prompt: str = "",
     program_context: str = "",
+    snapshot: str = "",
+    timezone_ctx: str = "",
 ) -> str:
     """Generate a conversational response (no SQL)."""
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -586,6 +609,11 @@ async def _chat_response(
         system += f"\n{profile_context}"
     if program_context:
         system += f"\n{program_context}"
+    if timezone_ctx:
+        system += timezone_ctx
+
+    if snapshot:
+        system += snapshot
 
     # Inject relevant domain knowledge
     knowledge = get_relevant_knowledge(question)
@@ -724,6 +752,15 @@ async def ask(
     coach = get_coach(coach_id) if coach_id else None
     coach_prompt = coach["system_addendum"] if coach else ""
 
+    # Load user timezone
+    tz_stmt = select(UserProfile.timezone).where(UserProfile.user_id == user_id)
+    tz_result = await db.execute(tz_stmt)
+    user_timezone = tz_result.scalar_one_or_none()
+
+    # Build always-on health snapshot
+    snapshot = await _build_recent_snapshot(db, user_id, user_timezone)
+    timezone_ctx = _build_timezone_context(user_timezone)
+
     try:
         # Route: does this need a data lookup or is it conversational?
         route = await _route_message(question)
@@ -732,7 +769,8 @@ async def ask(
         if route == "CHAT":
             # Pure conversation — no SQL needed
             answer_text = await _chat_response(
-                question, history, profile_context, coach_prompt, program_context
+                question, history, profile_context, coach_prompt, program_context,
+                snapshot=snapshot, timezone_ctx=timezone_ctx
             )
             # Check if the coach wants to update the program
             answer_text = await _handle_program_update(db, user_id, answer_text, coach_id or "")
@@ -767,7 +805,7 @@ async def ask(
 
         # Summarize results into natural language
         if rows and settings.ANTHROPIC_API_KEY:
-            answer_text = await _summarize_results(question, rows, profile_context, coach_prompt)
+            answer_text = await _summarize_results(question, rows, profile_context, coach_prompt, snapshot=snapshot)
         elif rows:
             answer_text = f"Found {len(rows)} result(s): {rows}"
         else:
@@ -781,7 +819,8 @@ async def ask(
         # If SQL validation fails, fall back to chat mode
         logger.warning("sql_validation_failed_falling_back_to_chat", error=str(exc))
         answer_text = await _chat_response(
-            question, history, profile_context, coach_prompt, program_context
+            question, history, profile_context, coach_prompt, program_context,
+            snapshot=snapshot, timezone_ctx=timezone_ctx
         )
         answer_text = await _handle_program_update(db, user_id, answer_text, coach_id or "")
         await _save_message(db, user_id, ChatRole.ASSISTANT, answer_text, model_used="claude-sonnet-4-20250514")
