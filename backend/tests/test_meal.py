@@ -111,3 +111,61 @@ async def test_user_profile_timezone_defaults_none(db_session, test_user):
     )
     saved = result.scalar_one()
     assert saved.timezone is None
+
+
+from datetime import date, time, timedelta
+
+
+@pytest.mark.asyncio
+async def test_build_recent_snapshot_with_data(db_session, test_user):
+    """Snapshot includes recent daily stats and formats them compactly."""
+    from app.models.health import DailyStat
+
+    today = date.today()
+    db_session.add(DailyStat(
+        user_id=test_user.id,
+        date=today,
+        data={
+            "totalSteps": 8420,
+            "totalKilocalories": 2150,
+            "averageStressLevel": 34,
+            "bodyBatteryHighestValue": 78,
+            "restingHeartRate": 58,
+        },
+    ))
+    await db_session.commit()
+
+    from app.services.llm_analyzer import _build_recent_snapshot
+    snapshot = await _build_recent_snapshot(db_session, test_user.id)
+
+    assert "8,420" in snapshot  # steps formatted with comma
+    assert "2,150" in snapshot  # calories
+    assert str(today) in snapshot
+
+
+@pytest.mark.asyncio
+async def test_build_recent_snapshot_empty(db_session, test_user):
+    """Snapshot handles no data gracefully."""
+    from app.services.llm_analyzer import _build_recent_snapshot
+    snapshot = await _build_recent_snapshot(db_session, test_user.id)
+
+    assert "No health data" in snapshot
+
+
+@pytest.mark.asyncio
+async def test_build_recent_snapshot_shows_gap(db_session, test_user):
+    """Snapshot shows how long since last data when there's a gap."""
+    from app.models.health import DailyStat
+
+    old_date = date.today() - timedelta(days=10)
+    db_session.add(DailyStat(
+        user_id=test_user.id,
+        date=old_date,
+        data={"totalSteps": 5000},
+    ))
+    await db_session.commit()
+
+    from app.services.llm_analyzer import _build_recent_snapshot
+    snapshot = await _build_recent_snapshot(db_session, test_user.id)
+
+    assert "10 days ago" in snapshot or "ago" in snapshot

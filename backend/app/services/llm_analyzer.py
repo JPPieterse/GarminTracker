@@ -117,6 +117,203 @@ async def _get_user_profile(db: AsyncSession, user_id: uuid.UUID) -> str:
     return f"\n\nUser Profile & Context:\n{profile.context}"
 
 
+async def _build_recent_snapshot(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    user_timezone: str | None = None,
+) -> str:
+    """Build a compact summary of recent health data for the coach's context.
+
+    Pulls up to 14 days of data, starting from the most recent date that has records.
+    If the user hasn't synced recently, includes the gap duration.
+    """
+    from datetime import date as date_type, timedelta
+    from app.models.health import DailyStat, SleepRecord, HeartRateRecord, Activity
+    from app.models.garmin_extended import (
+        HrvRecord, TrainingReadinessRecord, BodyCompositionRecord,
+        StressDetailRecord, PerformanceMetric,
+    )
+    from app.models.meal import MealLog
+    from sqlalchemy import func as sqlfunc, union_all
+
+    today = date_type.today()
+
+    # Find the most recent date with any data
+    date_queries = union_all(
+        select(sqlfunc.max(DailyStat.date)).where(DailyStat.user_id == user_id),
+        select(sqlfunc.max(SleepRecord.date)).where(SleepRecord.user_id == user_id),
+        select(sqlfunc.max(Activity.date)).where(Activity.user_id == user_id),
+    ).subquery()
+    result = await db.execute(select(sqlfunc.max(date_queries.c[0])))
+    latest_date = result.scalar_one_or_none()
+
+    if not latest_date:
+        return "\n\n## Recent Health Data\nNo health data synced yet."
+
+    gap_days = (today - latest_date).days
+    lookback_start = latest_date - timedelta(days=13)  # up to 14 days total
+
+    lines = ["\n\n## Recent Health Data"]
+    if gap_days > 1:
+        lines.append(f"Last data: {latest_date.isoformat()} ({gap_days} days ago)")
+    elif gap_days == 1:
+        lines.append(f"Last data: yesterday ({latest_date.isoformat()})")
+    else:
+        lines.append(f"Last sync: {latest_date.isoformat()} (today)")
+
+    # Fetch all data in range
+    daily_stmt = select(DailyStat).where(
+        DailyStat.user_id == user_id,
+        DailyStat.date.between(lookback_start, latest_date),
+    ).order_by(DailyStat.date.desc())
+    daily_result = await db.execute(daily_stmt)
+    daily_by_date = {r.date: r.data for r in daily_result.scalars()}
+
+    sleep_stmt = select(SleepRecord).where(
+        SleepRecord.user_id == user_id,
+        SleepRecord.date.between(lookback_start, latest_date),
+    ).order_by(SleepRecord.date.desc())
+    sleep_result = await db.execute(sleep_stmt)
+    sleep_by_date = {r.date: r.data for r in sleep_result.scalars()}
+
+    hr_stmt = select(HeartRateRecord).where(
+        HeartRateRecord.user_id == user_id,
+        HeartRateRecord.date.between(lookback_start, latest_date),
+    ).order_by(HeartRateRecord.date.desc())
+    hr_result = await db.execute(hr_stmt)
+    hr_by_date = {r.date: r.data for r in hr_result.scalars()}
+
+    hrv_stmt = select(HrvRecord).where(
+        HrvRecord.user_id == user_id,
+        HrvRecord.date.between(lookback_start, latest_date),
+    ).order_by(HrvRecord.date.desc())
+    hrv_result = await db.execute(hrv_stmt)
+    hrv_by_date = {r.date: r.data for r in hrv_result.scalars()}
+
+    readiness_stmt = select(TrainingReadinessRecord).where(
+        TrainingReadinessRecord.user_id == user_id,
+        TrainingReadinessRecord.date.between(lookback_start, latest_date),
+    ).order_by(TrainingReadinessRecord.date.desc())
+    readiness_result = await db.execute(readiness_stmt)
+    readiness_by_date = {r.date: r.data for r in readiness_result.scalars()}
+
+    activity_stmt = select(Activity).where(
+        Activity.user_id == user_id,
+        Activity.date.between(lookback_start, latest_date),
+    ).order_by(Activity.date.desc())
+    activity_result = await db.execute(activity_stmt)
+    activities_by_date: dict = {}
+    for a in activity_result.scalars():
+        activities_by_date.setdefault(a.date, []).append(a)
+
+    meal_stmt = select(MealLog).where(
+        MealLog.user_id == user_id,
+        MealLog.date.between(lookback_start, latest_date),
+    ).order_by(MealLog.date.desc())
+    meal_result = await db.execute(meal_stmt)
+    meals_by_date: dict = {}
+    for m in meal_result.scalars():
+        meals_by_date.setdefault(m.date, []).append(m)
+
+    # Build per-day summaries
+    all_dates = sorted(
+        set(daily_by_date) | set(sleep_by_date) | set(activities_by_date) | set(meals_by_date),
+        reverse=True,
+    )
+
+    for d in all_dates:
+        day_label = d.isoformat()
+        if d == today:
+            day_label += " (today)"
+        elif d == today - timedelta(days=1):
+            day_label += " (yesterday)"
+        lines.append(f"\n### {day_label}")
+
+        ds = daily_by_date.get(d, {})
+        if ds:
+            parts = []
+            if ds.get("totalSteps"):
+                parts.append(f"Steps: {ds['totalSteps']:,}")
+            if ds.get("totalKilocalories"):
+                parts.append(f"Calories: {ds['totalKilocalories']:,}")
+            if ds.get("averageStressLevel"):
+                parts.append(f"Stress: {ds['averageStressLevel']}")
+            if ds.get("bodyBatteryHighestValue"):
+                parts.append(f"Body Battery: {ds['bodyBatteryHighestValue']}")
+            if parts:
+                lines.append(f"- {' | '.join(parts)}")
+
+        sl = sleep_by_date.get(d, {})
+        if sl:
+            parts = []
+            if sl.get("sleepTimeSeconds"):
+                hrs = round(sl["sleepTimeSeconds"] / 3600, 1)
+                deep = round(sl.get("deepSleepSeconds", 0) / 3600, 1)
+                rem = round(sl.get("remSleepSeconds", 0) / 3600, 1)
+                parts.append(f"Sleep: {hrs}h (deep {deep}h, REM {rem}h)")
+            if sl.get("avgHeartRate"):
+                parts.append(f"Sleep HR: {sl['avgHeartRate']}")
+            if parts:
+                lines.append(f"- {' | '.join(parts)}")
+
+        hr = hr_by_date.get(d, {})
+        hrv = hrv_by_date.get(d, {})
+        hr_parts = []
+        if hr.get("restingHeartRate"):
+            hr_parts.append(f"Resting HR: {hr['restingHeartRate']}")
+        hrv_summary = hrv.get("hrvSummary", {}) if hrv else {}
+        if hrv_summary.get("lastNightAvg"):
+            status = hrv_summary.get("status", "")
+            baseline = hrv_summary.get("baseline", {})
+            bl_str = ""
+            if baseline.get("balancedLow") and baseline.get("balancedUpper"):
+                bl_str = f", baseline {baseline['balancedLow']}-{baseline['balancedUpper']}"
+            hr_parts.append(f"HRV: {hrv_summary['lastNightAvg']:.0f} ({status}{bl_str})")
+        if hr_parts:
+            lines.append(f"- {' | '.join(hr_parts)}")
+
+        rd = readiness_by_date.get(d, {})
+        rd_parts = []
+        if rd.get("readiness", {}).get("score"):
+            level = rd["readiness"].get("level", "")
+            rd_parts.append(f"Training Readiness: {rd['readiness']['score']} ({level})")
+        if rd.get("status", {}).get("trainingStatus"):
+            rd_parts.append(f"Status: {rd['status']['trainingStatus']}")
+        if rd_parts:
+            lines.append(f"- {' | '.join(rd_parts)}")
+
+        acts = activities_by_date.get(d, [])
+        if acts:
+            act_strs = []
+            for a in acts:
+                s = a.activity_type.replace("_", " ").title()
+                dist = a.data.get("distance")
+                dur = a.data.get("duration") or a.data.get("movingDuration")
+                avg_hr = a.data.get("averageHR") or a.data.get("avgHR")
+                if dist:
+                    s += f" {dist/1000:.1f}km"
+                if dur:
+                    s += f" ({dur/60:.0f}min"
+                    if avg_hr:
+                        s += f", avg HR {avg_hr:.0f}"
+                    s += ")"
+                act_strs.append(s)
+            lines.append(f"- Activities: {', '.join(act_strs)}")
+
+        day_meals = meals_by_date.get(d, [])
+        if day_meals:
+            meal_strs = []
+            total_cal = 0
+            total_protein = 0.0
+            for m in day_meals:
+                meal_strs.append(f"{m.meal_type.value.title()} {m.calories}cal ({m.protein_g:.0f}g P)")
+                total_cal += m.calories
+                total_protein += m.protein_g
+            lines.append(f"- Meals: {', '.join(meal_strs)} — total: {total_cal}cal, {total_protein:.0f}g protein")
+
+    return "\n".join(lines)
+
+
 def _extract_sql(raw: str) -> str:
     """Extract SQL from a response that may include markdown code fences."""
     match = re.search(r"```sql\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
