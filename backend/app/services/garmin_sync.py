@@ -37,8 +37,26 @@ logger = structlog.get_logger()
 _TOKEN_DIR = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / "personal" / "GarminTracker" / ".garminconnect"
 
 
+_client_cache: dict[uuid.UUID, Garmin] = {}
+
+
 async def _get_garmin_client(db: AsyncSession, user_id: uuid.UUID) -> Garmin:
-    """Decrypt stored credentials and return an authenticated Garmin client."""
+    """Decrypt stored credentials and return an authenticated Garmin client.
+
+    Uses a two-stage strategy to avoid unnecessary Garmin logins:
+    1. Return an in-memory cached client if available.
+    2. Try loading cached OAuth tokens from disk.
+    3. Fall back to full email/password login (rate-limited by Garmin).
+    After a successful login the tokens are saved to disk for next time.
+    """
+    if user_id in _client_cache:
+        try:
+            # Quick connectivity check — profile is cached so this is cheap
+            _ = _client_cache[user_id].full_name
+            return _client_cache[user_id]
+        except Exception:
+            _client_cache.pop(user_id, None)
+
     stmt = select(GarminCredential).where(GarminCredential.user_id == user_id)
     result = await db.execute(stmt)
     cred = result.scalar_one_or_none()
@@ -54,10 +72,24 @@ async def _get_garmin_client(db: AsyncSession, user_id: uuid.UUID) -> Garmin:
 
     def _login():
         c = Garmin(email, password)
-        c.login(tokenstore=str(user_token_dir))
+
+        # Stage 1: try cached tokens (no network call to Garmin SSO)
+        try:
+            c.login(tokenstore=str(user_token_dir))
+            return c
+        except Exception:
+            pass
+
+        # Stage 2: full credential login (counts against Garmin rate limit)
+        c.login()
+
+        # Persist tokens so future calls use Stage 1
+        c.garth.dump(str(user_token_dir))
         return c
 
-    return await asyncio.to_thread(_login)
+    client = await asyncio.to_thread(_login)
+    _client_cache[user_id] = client
+    return client
 
 
 def _today() -> date:
@@ -244,10 +276,19 @@ async def sync_user_data(
         except Exception as exc:
             logger.debug("performance_sync_skipped", error=str(exc))
 
+        # Persist any refreshed tokens so future syncs skip full login
+        user_token_dir = _TOKEN_DIR / str(user_id)
+        try:
+            client.garth.dump(str(user_token_dir))
+        except Exception:
+            pass
+
         log.status = SyncStatus.SUCCESS
         log.records_synced = records
 
     except Exception as exc:
+        # Evict cached client on failure so next attempt re-authenticates
+        _client_cache.pop(user_id, None)
         logger.error("garmin_sync_failed", user_id=str(user_id), error=str(exc))
         log.status = SyncStatus.FAILED
         log.error_message = str(exc)[:2000]
